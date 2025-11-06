@@ -35,7 +35,7 @@ Se realizó un análisis exploratorio (EDA) para:
 ## 2.4 Calidad e Integridad de los Datos
 
 - **Problemas detectados:**
-  - **Datos faltantes:** Algunos registros carecen de información clínica o sociodemográfica por la integración de fuentes distintas.
+  - **Datos faltantes:** Algunos registros carecen de información veridica por la integración de fuentes distintas.
   - **Sobre-escritura y pérdida de datos:** Al integrar variables de diferentes sistemas, algunos datos pueden haberse sobreescrito o perdido, especialmente en pacientes con múltiples citas o cambios administrativos.
   - **Inconsistencias:** Diferencias en la codificación de variables categóricas (por ejemplo, tipo de seguro, sexo).
   - **Duplicados:** Registros repetidos por errores de transacción.
