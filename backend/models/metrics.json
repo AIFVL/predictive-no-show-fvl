@@ -1,0 +1,48 @@
+{
+  "accuracy": 0.7764481914604296,
+  "feature_columns": [
+    "Age",
+    "Number of Diseases",
+    "Recent Hospitalization",
+    "Number of Medications",
+    "Hour",
+    "Creation to Assignment Interval",
+    "Number of Previous Attendance",
+    "Number of Previous Non-Attendance",
+    "Sex",
+    "Insurance Type",
+    "Day",
+    "Month"
+  ],
+  "target_distribution": {
+    "0": 0.6587793733681462,
+    "1": 0.34122062663185376
+  },
+  "classification_report": {
+    "0": {
+      "precision": 0.7756719503790489,
+      "recall": 0.9293971924029728,
+      "f1-score": 0.8456048084147257,
+      "support": 2422.0
+    },
+    "1": {
+      "precision": 0.7793548387096774,
+      "recall": 0.48127490039840637,
+      "f1-score": 0.5950738916256157,
+      "support": 1255.0
+    },
+    "accuracy": 0.7764481914604296,
+    "macro avg": {
+      "precision": 0.7775133945443631,
+      "recall": 0.7053360464006896,
+      "f1-score": 0.7203393500201707,
+      "support": 3677.0
+    },
+    "weighted avg": {
+      "precision": 0.7769289601301881,
+      "recall": 0.7764481914604296,
+      "f1-score": 0.760095887944143,
+      "support": 3677.0
+    }
+  }
+}
