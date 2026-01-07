@@ -1,11 +1,14 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .schemas import PatientInput, PredictionResponse
-from .services.prediction import predict_from_dict, info as model_info
+from .routes import appointment_routes, prediction_routes
+from .db import init_db
 
 
 app = FastAPI(title="Predictive No-Show API")
+
+app.include_router(appointment_routes)
+app.include_router(prediction_routes)
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,25 +19,18 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def on_startup():
+    init_db()
+    print("Database initialized")
+
+@app.on_event("shutdown")
+def on_shutdown():
+    print("Shutting down application")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.get("/model-info")
-def model_info():
-    return model_info()
-
-
-@app.post("/predict", response_model=PredictionResponse)
-def predict(payload: PatientInput):
-    try:
-        res = predict_from_dict(payload.features)
-        return PredictionResponse(**res)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
- 
 
 

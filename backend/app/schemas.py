@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
+from datetime import datetime
 
 
 class PatientInput(BaseModel):
@@ -16,3 +17,24 @@ class PredictionResponse(BaseModel):
     label: int
     probability: Optional[float]
     model_version: Optional[str] = None
+
+
+class AppointmentCreate(BaseModel):
+    patient_id: str
+    hour: int
+    day: int
+    month: int
+    apointment_type: int
+
+
+class AppointmentOut(BaseModel):
+    id: int
+    patient_id: str
+    hour: int
+    day: int
+    month: int
+    apointment_type: int
+    created_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
