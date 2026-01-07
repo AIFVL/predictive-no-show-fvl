@@ -24,7 +24,16 @@ class AppointmentCreate(BaseModel):
     hour: int
     day: int
     month: int
-    apointment_type: int
+    # appointment_type is set by server when creating a new appointment
+    pass
+
+
+class AppointmentUpdate(BaseModel):
+    patient_id: str
+    hour: int
+    day: int
+    month: int
+    appointment_type: int
 
 
 class AppointmentOut(BaseModel):
@@ -33,7 +42,7 @@ class AppointmentOut(BaseModel):
     hour: int
     day: int
     month: int
-    apointment_type: int
+    appointment_type: int
     created_at: Optional[datetime]
 
     class Config:

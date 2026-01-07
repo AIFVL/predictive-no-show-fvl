@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from ..schemas import AppointmentCreate, AppointmentOut
+from ..schemas import AppointmentCreate, AppointmentOut, AppointmentUpdate
 from ..db import Appointment, SessionLocal
 from ..services import db_service
 
@@ -18,7 +18,7 @@ def create_appointment(payload: AppointmentCreate):
     db = SessionLocal()
     try:
         appt = db_service.create_appointment(
-            db, payload.patient_id, payload.hour, payload.day, payload.month, payload.apointment_type
+            db, payload.patient_id, payload.hour, payload.day, payload.month, 2
         )
         return appt
     except Exception as e:
@@ -39,7 +39,7 @@ def get_appointments():
 
 
 @appointment_routes.put("/{appointment_id}", response_model=AppointmentOut)
-def update_appointment(appointment_id: int, payload: AppointmentCreate):
+def update_appointment(appointment_id: int, payload: AppointmentUpdate):
     db = SessionLocal()
     try:
         appt = db_service.update_appointment(

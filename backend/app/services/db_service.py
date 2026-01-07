@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from ..db import Appointment
 
 
-def create_appointment(db: Session, patient_id: str, hour: int, day: int, month: int, appointment_type: int) -> Appointment:
+def create_appointment(db: Session, patient_id: str, hour: int, day: int, month: int, appointment_type: int = 2) -> Appointment:
     appt = Appointment(
         patient_id=str(patient_id),
         hour=int(hour),
