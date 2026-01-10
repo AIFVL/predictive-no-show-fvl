@@ -1,20 +1,18 @@
-Frontend calendar (FullCalendar)
+# React + Vite
 
-Files:
-- `frontend/calendar/index.html` — static page that uses FullCalendar (CDN) and fetches `GET /appointments` from the backend.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-How to run:
-1. Make sure your FastAPI backend is running on `http://127.0.0.1:8000`.
-2. Serve the `frontend/calendar` folder with a static file server. From the repo root you can use Python:
+Currently, two official plugins are available:
 
-```bash
-cd frontend/calendar
-python -m http.server 5500
-```
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-3. Open browser: `http://127.0.0.1:5500` — the calendar will load and call the backend endpoints.
+## React Compiler
 
-Notes:
-- CORS for the backend is already enabled (`allow_origins=['*']`).
-- The calendar maps appointment `hour/day/month` to a date using the current year.
-- Creating a new appointment calls `POST /appointments` and refreshes the calendar on success.
+The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+
+Note: This will impact Vite dev & build performances.
+
+## Expanding the ESLint configuration
+
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.

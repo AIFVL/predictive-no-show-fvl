@@ -10,6 +10,11 @@ app = FastAPI(title="Predictive No-Show API")
 app.include_router(appointment_routes)
 app.include_router(prediction_routes)
 
+origins = [
+    "http://localhost:5173"
+]
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

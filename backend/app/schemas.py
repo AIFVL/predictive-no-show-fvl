@@ -20,6 +20,7 @@ class PredictionResponse(BaseModel):
 
 
 class AppointmentCreate(BaseModel):
+    medic_id: str
     patient_id: str
     hour: int
     day: int
@@ -29,6 +30,7 @@ class AppointmentCreate(BaseModel):
 
 
 class AppointmentUpdate(BaseModel):
+    medic_id: str
     patient_id: str
     hour: int
     day: int
@@ -38,6 +40,7 @@ class AppointmentUpdate(BaseModel):
 
 class AppointmentOut(BaseModel):
     id: int
+    medic_id: str
     patient_id: str
     hour: int
     day: int

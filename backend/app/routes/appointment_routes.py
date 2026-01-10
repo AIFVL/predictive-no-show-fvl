@@ -18,7 +18,7 @@ def create_appointment(payload: AppointmentCreate):
     db = SessionLocal()
     try:
         appt = db_service.create_appointment(
-            db, payload.patient_id, payload.hour, payload.day, payload.month, 2
+            db, payload.medic_id, payload.patient_id, payload.hour, payload.day, payload.month, 2
         )
         return appt
     except Exception as e:
@@ -37,13 +37,34 @@ def get_appointments():
     finally:
         db.close()
 
+@appointment_routes.get("/info/{appointment_id}", response_model=AppointmentOut)
+def get_appointment_info(appointment_id: int):
+    db = SessionLocal()
+    try:
+        appt = db_service.get_appointment_info(db, appointment_id)
+        if not appt:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        return appt
+    finally:
+        db.close()
+
+@appointment_routes.get("/{medic_id}", response_model=list[AppointmentOut])
+def get_appointments_by_medic(medic_id: str):
+    db = SessionLocal()
+    try:
+        appts = db_service.list_appointments_by_medic(db, medic_id)
+        return appts
+    finally:
+        db.close()
+
+
 
 @appointment_routes.put("/{appointment_id}", response_model=AppointmentOut)
 def update_appointment(appointment_id: int, payload: AppointmentUpdate):
     db = SessionLocal()
     try:
         appt = db_service.update_appointment(
-            db, appointment_id, payload.patient_id, payload.hour, payload.day, payload.month, payload.appointment_type
+            db, appointment_id, payload.medic_id, payload.patient_id, payload.hour, payload.day, payload.month, payload.appointment_type
         )
         if not appt:
             raise HTTPException(status_code=404, detail="Appointment not found")
