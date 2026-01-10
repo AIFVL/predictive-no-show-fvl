@@ -7,6 +7,11 @@ import interactionPlugin from '@fullcalendar/interaction'
 
 function App() {
   const [appointments, setAppointments] = useState([])
+  const TYPE_LABELS = {
+    0: 'No show',
+    1: 'Asistida',
+    2: 'En espera'
+  }
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ medic_id: '', patient_id: '', hour: 9, day: 1, month: 1, search: '' })
 
@@ -79,7 +84,7 @@ function App() {
       const start = new Date(year, (appt.month || 1) - 1, appt.day || 1, appt.hour || 0)
       return {
         id: String(appt.id),
-        title: `Paciente ${appt.patient_id}`,
+        title: `Paciente ${appt.patient_id}` + (appt.appointment_type ? ` — ${TYPE_LABELS[appt.appointment_type] ?? appt.appointment_type}` : ''),
         start: start.toISOString(),
         allDay: false,
         extendedProps: appt
@@ -89,6 +94,7 @@ function App() {
 
   const [selectedAppt, setSelectedAppt] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [showSelectType, setShowSelectType] = useState(false)
 
   const fetchAppointmentInfo = async (appointmentId) => {
     try {
@@ -105,6 +111,43 @@ function App() {
       alert('Error fetching appointment info: ' + err.message)
     }
   }
+
+  const handleDelete = async (appointmentId) => {
+    if (!window.confirm('¿Estás seguro de que deseas eliminar esta cita?')) return
+    try {
+      const res = await fetch(`http://localhost:8000/appointments/${appointmentId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || 'Failed to delete appointment')
+      }
+      await fetchAppointments()
+      setShowDetails(false)
+    } catch (err) {
+      console.error('Failed to delete appointment', err)
+      alert('Error deleting appointment: ' + err.message)
+    }
+  }
+  
+  const handleChangeAppointmentType = async (appointmentId, newType) => {
+    try{
+      // backend expects appointment_type as query parameter
+      const res = await fetch(`http://localhost:8000/appointments/type/${appointmentId}?appointment_type=${encodeURIComponent(newType)}`, {
+        method: 'PATCH'
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || 'Failed to update appointment type')
+      }
+      const updatedAppt = await res.json()
+      setSelectedAppt(updatedAppt)
+      await fetchAppointments()
+    } catch (err) {
+      console.error('Failed to update appointment type', err)
+      alert('Error updating appointment type: ' + err.message)
+    }
+  }
+
+
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -197,10 +240,28 @@ function App() {
                 <div><strong>Paciente ID:</strong> {selectedAppt.patient_id}</div>
                 <div><strong>Fecha (día/mes/año):</strong> {`${selectedAppt.day}/${selectedAppt.month}/2026`}</div>
                 <div><strong>Hora:</strong> {selectedAppt.hour}:00</div>
-                <div><strong>Tipo de cita:</strong> {selectedAppt.appointment_type}</div>
+                <div><strong>Tipo de cita:</strong> {TYPE_LABELS[selectedAppt.appointment_type] ?? selectedAppt.appointment_type}</div>
                 <div><strong>Creada en:</strong> {selectedAppt.created_at ?? '—'}</div>
               </div>
               <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowSelectType(v => !v)} style={{ padding: '6px 10px', borderRadius: 6, background: '#2563eb', color: '#fff', border: 'none' }}>Cambiar tipo de cita</button>
+                {showSelectType && (
+                  <select
+                    onChange={(e) => {
+                      const newType = Number(e.target.value)
+                      handleChangeAppointmentType(selectedAppt.id, newType)
+                      setShowSelectType(false)
+                    }
+                  }
+                    defaultValue={selectedAppt.appointment_type || ''}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db' }}
+                  >
+                    <option value={0}>No show</option>
+                    <option value={1}>Asistida</option>
+                    <option value={2}>En espera</option>
+                  </select>
+                )}
+                <button onClick={() => handleDelete(selectedAppt.id)} style={{ padding: '6px 10px', borderRadius: 6, background: '#dc2626', color: '#fff', border: 'none' }}>Eliminar cita</button>
                 <button onClick={() => setShowDetails(false)} style={{ padding: '6px 10px', borderRadius: 6 }}>Cerrar</button>
               </div>
             </div>

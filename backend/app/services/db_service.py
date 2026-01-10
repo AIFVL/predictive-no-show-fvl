@@ -50,3 +50,10 @@ def update_appointment_type(db: Session, appointment_id: int, appointment_type: 
         db.commit()
         db.refresh(appt)
     return appt
+
+def delete_appointment(db: Session, appointment_id: int) -> None:
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if appt:
+        db.delete(appt)
+        db.commit()
+    return

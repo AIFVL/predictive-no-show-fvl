@@ -75,7 +75,7 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate):
     finally:
         db.close()
 
-@appointment_routes.patch("/{appointment_id}/type", response_model=AppointmentOut)
+@appointment_routes.patch("/type/{appointment_id}", response_model=AppointmentOut)
 def update_appointment_type(appointment_id: int, appointment_type: int):
     db = SessionLocal()
     try:
@@ -84,6 +84,7 @@ def update_appointment_type(appointment_id: int, appointment_type: int):
         )
         if not appt:
             raise HTTPException(status_code=404, detail="Appointment not found")
+        return appt
     except Exception as e:
         print("Error updating appointment type:", e)
         raise HTTPException(status_code=500, detail=str(e))
