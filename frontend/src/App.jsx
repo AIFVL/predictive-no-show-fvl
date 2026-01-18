@@ -222,32 +222,37 @@ function App() {
         </header>
 
         {showForm && (
-          <form onSubmit={handleSubmit} className="mb-6 p-4 bg-white border rounded-lg shadow-sm">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm text-slate-600">Médico ID</span>
-                <input name="medic_id" value={form.medic_id} onChange={handleChange} required className="mt-1 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              </label>
-              <label className="flex flex-col">
-                <span className="text-sm text-slate-600">Paciente ID</span>
-                <input name="patient_id" value={form.patient_id} onChange={handleChange} required className="mt-1 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              </label>
-              <label className="flex flex-col">
-                <span className="text-sm text-slate-600">Hora</span>
-                <input name="hour" type="number" min="0" max="23" value={form.hour} onChange={handleChange} required className="mt-1 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              </label>
-              <label className="flex flex-col">
-                <span className="text-sm text-slate-600">Día</span>
-                <input name="day" type="number" min="1" max="31" value={form.day} onChange={handleChange} required className="mt-1 p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              </label>
-              <label className="flex flex-col md:col-span-2">
-                <span className="text-sm text-slate-600">Mes</span>
-                <input name="month" type="number" min="1" max="12" value={form.month} onChange={handleChange} required className="mt-1 p-2 border rounded w-32 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              </label>
+          <form onSubmit={handleSubmit} className="mb-6 bg-white border rounded-lg shadow-sm" style={{ padding: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Médico ID</label>
+                <input name="medic_id" value={form.medic_id} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Paciente ID</label>
+                <input name="patient_id" value={form.patient_id} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Hora</label>
+                <input name="hour" type="number" min="0" max="23" value={form.hour} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Día</label>
+                <input name="day" type="number" min="1" max="31" value={form.day} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+              </div>
+
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Mes</label>
+                <input name="month" type="number" min="1" max="12" value={form.month} onChange={handleChange} required style={{ padding: 10, borderRadius: 8, border: '1px solid #e6edf3', width: 140 }} />
+              </div>
             </div>
-            <div className="mt-4 flex gap-2">
-              <button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded shadow">Crear cita</button>
-              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded">Cancelar</button>
+
+            <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="submit" style={{ padding: '8px 14px', background: '#059669', color: '#fff', borderRadius: 8, border: 'none', cursor: 'pointer' }}>Crear cita</button>
+              <button type="button" onClick={() => setShowForm(false)} style={{ padding: '8px 14px', background: '#f3f4f6', color: '#111827', borderRadius: 8, border: '1px solid #e5e7eb' }}>Cancelar</button>
             </div>
           </form>
         )}
