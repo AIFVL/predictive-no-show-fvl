@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -7,9 +7,10 @@ import interactionPlugin from '@fullcalendar/interaction'
 
 function App() {
   const [appointments, setAppointments] = useState([])
+  const [predictionsMap, setPredictionsMap] = useState({})
   const TYPE_LABELS = {
-    0: 'No show',
-    1: 'Asistida',
+    0: 'Asistida',
+    1: 'No show',
     2: 'En espera'
   }
   const [showForm, setShowForm] = useState(false)
@@ -19,9 +20,31 @@ function App() {
     try {
       const res = await fetch('http://localhost:8000/appointments')
       const data = await res.json()
-      setAppointments(Array.isArray(data) ? data : [])
+      const appts = Array.isArray(data) ? data : []
+      setAppointments(appts)
+      // after loading appointments, fetch predictions for waiting ones
+      fetchPredictionsWaiting()
     } catch (err) {
       console.error('Failed to fetch appointments', err)
+    }
+  }
+
+  const fetchPredictionsWaiting = async (medicId) => {
+    try {
+      const url = medicId ? `http://localhost:8000/predictions/waiting?medic_id=${encodeURIComponent(medicId)}` : `http://localhost:8000/predictions/waiting`
+      const res = await fetch(url)
+      if (!res.ok) {
+        console.warn('Failed to fetch predictions for waiting appointments')
+        return
+      }
+      const data = await res.json()
+      const map = {}
+      for (const item of (data.per_appointment || [])) {
+        if (item && item.appointment_id != null) map[String(item.appointment_id)] = item
+      }
+      setPredictionsMap(map)
+    } catch (err) {
+      console.error('Failed to fetch waiting predictions', err)
     }
   }
 
@@ -82,12 +105,21 @@ function App() {
     const year = 2026
     return appointments.map(appt => {
       const start = new Date(year, (appt.month || 1) - 1, appt.day || 1, appt.hour || 0)
+      // color the event according to appointment type
+      const colorMap = {
+        0: '#10b981', // Asistida -> green
+        1: '#dc2626', // No show -> red
+        2: '#2563eb'  // En espera -> blue/default
+      }
+      const color = colorMap[appt.appointment_type] || '#2563eb'
+
       return {
         id: String(appt.id),
-        title: `Paciente ${appt.patient_id}` + (appt.appointment_type ? ` — ${TYPE_LABELS[appt.appointment_type] ?? appt.appointment_type}` : ''),
+        title: `Paciente ${appt.patient_id}` + (appt.appointment_type !== undefined ? ` — ${TYPE_LABELS[appt.appointment_type] ?? appt.appointment_type}` : ''),
         start: start.toISOString(),
         allDay: false,
-        extendedProps: appt
+        extendedProps: appt,
+        color,
       }
     })
   }, [appointments])
@@ -95,6 +127,7 @@ function App() {
   const [selectedAppt, setSelectedAppt] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
   const [showSelectType, setShowSelectType] = useState(false)
+  const calendarRef = useRef(null)
 
   const fetchAppointmentInfo = async (appointmentId) => {
     try {
@@ -144,6 +177,23 @@ function App() {
     } catch (err) {
       console.error('Failed to update appointment type', err)
       alert('Error updating appointment type: ' + err.message)
+    }
+  }
+
+  const handleDateClick = (info) => {
+    // When clicking a day in month/year view, switch to the single-day time grid
+    try {
+      const api = calendarRef.current?.getApi()
+      if (!api) return
+      const currentView = api.view?.type
+      // If currently in the month-like view, change to day view first
+      if (currentView === 'dayGridMonth' || currentView === 'dayGridYear') {
+        api.changeView('timeGridDay')
+      }
+      // Navigate to the clicked date
+      api.gotoDate(info.date)
+    } catch (err) {
+      console.error('Error handling date click', err)
     }
   }
 
@@ -204,6 +254,7 @@ function App() {
 
         <div className="bg-white rounded-lg shadow p-4">
           <FullCalendar
+            ref={calendarRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
             headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
@@ -212,6 +263,7 @@ function App() {
               const apptId = info.event.id || info.event.extendedProps?.id
               if (apptId) fetchAppointmentInfo(apptId)
             }}
+            dateClick={handleDateClick}
             height="auto"
           />
           <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-start' }}>
@@ -242,22 +294,44 @@ function App() {
                 <div><strong>Hora:</strong> {selectedAppt.hour}:00</div>
                 <div><strong>Tipo de cita:</strong> {TYPE_LABELS[selectedAppt.appointment_type] ?? selectedAppt.appointment_type}</div>
                 <div><strong>Creada en:</strong> {selectedAppt.created_at ?? '—'}</div>
+                {selectedAppt.appointment_type === 2 && predictionsMap[String(selectedAppt.id)] && (
+                  <div>
+                    <strong>Predicción de asistencia:</strong>{' '}
+                    {predictionsMap[String(selectedAppt.id)].prob_attend != null
+                      ? `${(predictionsMap[String(selectedAppt.id)].prob_attend * 100).toFixed(1)}%`
+                      : '—'}
+                  </div>
+                )}
               </div>
               <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button onClick={() => setShowSelectType(v => !v)} style={{ padding: '6px 10px', borderRadius: 6, background: '#2563eb', color: '#fff', border: 'none' }}>Cambiar tipo de cita</button>
-                {showSelectType && (
+                {/* Disable change button when appointment is already decided (not 'En espera') */}
+                <button
+                  onClick={() => { if (selectedAppt.appointment_type === 2) setShowSelectType(v => !v) }}
+                  disabled={selectedAppt.appointment_type !== 2}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    background: selectedAppt.appointment_type === 2 ? '#2563eb' : '#94a3b8',
+                    color: '#fff',
+                    border: 'none',
+                    cursor: selectedAppt.appointment_type === 2 ? 'pointer' : 'not-allowed',
+                    opacity: selectedAppt.appointment_type === 2 ? 1 : 0.6
+                  }}
+                >
+                  Cambiar estado de cita
+                </button>
+                {showSelectType && selectedAppt.appointment_type === 2 && (
                   <select
                     onChange={(e) => {
                       const newType = Number(e.target.value)
                       handleChangeAppointmentType(selectedAppt.id, newType)
                       setShowSelectType(false)
-                    }
-                  }
-                    defaultValue={selectedAppt.appointment_type || ''}
+                    }}
+                    defaultValue={String(selectedAppt.appointment_type ?? '')}
                     style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db' }}
                   >
-                    <option value={0}>No show</option>
-                    <option value={1}>Asistida</option>
+                    <option value={0}>Asistida</option>
+                    <option value={1}>No show</option>
                     <option value={2}>En espera</option>
                   </select>
                 )}
