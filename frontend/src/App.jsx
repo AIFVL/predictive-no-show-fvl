@@ -6,7 +6,10 @@ import interactionPlugin from '@fullcalendar/interaction'
 // CSS loaded from CDN in index.html
 
 function App() {
+  // Top-level component state
+  // `appointments` holds the list of appointments fetched from backend
   const [appointments, setAppointments] = useState([])
+  // `predictionsMap` stores prediction results keyed by appointment id
   const [predictionsMap, setPredictionsMap] = useState({})
   const TYPE_LABELS = {
     0: 'Asistida',
@@ -14,21 +17,25 @@ function App() {
     2: 'En espera'
   }
   const [showForm, setShowForm] = useState(false)
+  // `form` stores controlled inputs for the add-appointment form
   const [form, setForm] = useState({ medic_id: '', patient_id: '', hour: 9, day: 1, month: 1, search: '' })
 
+  // Fetch all appointments from the backend API and refresh predictions map
   const fetchAppointments = async () => {
     try {
       const res = await fetch('http://localhost:8000/appointments')
       const data = await res.json()
       const appts = Array.isArray(data) ? data : []
       setAppointments(appts)
-      // after loading appointments, fetch predictions for waiting ones
+      // After loading appointments, refresh prediction data for waiting appointments
       fetchPredictionsWaiting()
     } catch (err) {
       console.error('Failed to fetch appointments', err)
     }
   }
 
+  // Query backend for predictions for appointments in 'En espera'
+  // Builds a map { appointment_id: predictionObject } for quick lookup
   const fetchPredictionsWaiting = async (medicId) => {
     try {
       const url = medicId ? `http://localhost:8000/predictions/waiting?medic_id=${encodeURIComponent(medicId)}` : `http://localhost:8000/predictions/waiting`
@@ -39,6 +46,7 @@ function App() {
       }
       const data = await res.json()
       const map = {}
+      // `per_appointment` contains items with appointment_id, prob_attend, prob_no_show, etc.
       for (const item of (data.per_appointment || [])) {
         if (item && item.appointment_id != null) map[String(item.appointment_id)] = item
       }
@@ -50,8 +58,10 @@ function App() {
 
   useEffect(() => { fetchAppointments() }, [])
 
+  // Toggle the add-appointment form visibility
   const toggleForm = () => setShowForm(v => !v)
 
+  // Generic controlled input handler for the add form
   const handleChange = (e) => {
     const { name, value } = e.target
     setForm(prev => ({ ...prev, [name]: name === 'hour' || name === 'day' || name === 'month' ? Number(value) : value }))
@@ -59,6 +69,7 @@ function App() {
 
 
 
+  // Search appointments by medic id; refreshes the appointments list
   const handleSearch = async () => {
     const medicId = form.search && String(form.search).trim()
     if (!medicId) {
@@ -79,6 +90,7 @@ function App() {
     }
   }
 
+  // Submit handler for the add-appointment form
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
@@ -101,11 +113,13 @@ function App() {
     }
   }
 
+  // Build FullCalendar events from appointments state. Memoized for performance.
   const events = useMemo(() => {
     const year = 2026
     return appointments.map(appt => {
       const start = new Date(year, (appt.month || 1) - 1, appt.day || 1, appt.hour || 0)
       // color the event according to appointment type
+      // 0: Asistida (green), 1: No show (red), 2: En espera (blue)
       const colorMap = {
         0: '#10b981', // Asistida -> green
         1: '#dc2626', // No show -> red
@@ -129,6 +143,7 @@ function App() {
   const [showSelectType, setShowSelectType] = useState(false)
   const calendarRef = useRef(null)
 
+  // Load detailed appointment info from backend and open modal
   const fetchAppointmentInfo = async (appointmentId) => {
     try {
       const res = await fetch(`http://localhost:8000/appointments/info/${appointmentId}`)
@@ -145,6 +160,7 @@ function App() {
     }
   }
 
+  // Delete an appointment by id and refresh list
   const handleDelete = async (appointmentId) => {
     if (!window.confirm('¿Estás seguro de que deseas eliminar esta cita?')) return
     try {
@@ -161,6 +177,8 @@ function App() {
     }
   }
   
+  // Change only the appointment_type for an appointment (PATCH)
+  // Note: UI blocks this action unless the appointment is currently 'En espera'
   const handleChangeAppointmentType = async (appointmentId, newType) => {
     try{
       // backend expects appointment_type as query parameter
@@ -180,8 +198,9 @@ function App() {
     }
   }
 
+  // Handle clicks on calendar days: when user clicks a day in month view,
+  // switch to the single-day view and navigate to that date.
   const handleDateClick = (info) => {
-    // When clicking a day in month/year view, switch to the single-day time grid
     try {
       const api = calendarRef.current?.getApi()
       if (!api) return
@@ -195,6 +214,19 @@ function App() {
     } catch (err) {
       console.error('Error handling date click', err)
     }
+  }
+
+  // Helper: determine whether an appointment datetime has already passed.
+  // Uses the current year so comparisons match the UI calendar year.
+  const isAppointmentInPast = (appt) => {
+    if (!appt) return false
+    const year = new Date().getFullYear()
+    // fallback values if fields missing
+    const month = (appt.month || 1) - 1
+    const day = appt.day || 1
+    const hour = appt.hour || 0
+    const apptDate = new Date(year, month, day, hour)
+    return apptDate.getTime() < Date.now()
   }
 
 
@@ -309,23 +341,28 @@ function App() {
                 )}
               </div>
               <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                {/* Disable change button when appointment is already decided (not 'En espera') */}
-                <button
-                  onClick={() => { if (selectedAppt.appointment_type === 2) setShowSelectType(v => !v) }}
-                  disabled={selectedAppt.appointment_type !== 2}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    background: selectedAppt.appointment_type === 2 ? '#2563eb' : '#94a3b8',
-                    color: '#fff',
-                    border: 'none',
-                    cursor: selectedAppt.appointment_type === 2 ? 'pointer' : 'not-allowed',
-                    opacity: selectedAppt.appointment_type === 2 ? 1 : 0.6
-                  }}
-                >
-                  Cambiar estado de cita
-                </button>
-                {showSelectType && selectedAppt.appointment_type === 2 && (
+                {/* Disable change button unless appointment is 'En espera' AND its date/time is already past */}
+                {(() => {
+                  const canChangeState = selectedAppt && selectedAppt.appointment_type === 2 && isAppointmentInPast(selectedAppt)
+                  return (
+                    <button
+                      onClick={() => { if (canChangeState) setShowSelectType(v => !v) }}
+                      disabled={!canChangeState}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        background: canChangeState ? '#2563eb' : '#94a3b8',
+                        color: '#fff',
+                        border: 'none',
+                        cursor: canChangeState ? 'pointer' : 'not-allowed',
+                        opacity: canChangeState ? 1 : 0.6
+                      }}
+                    >
+                      Cambiar estado de cita
+                    </button>
+                  )
+                })()}
+                {showSelectType && selectedAppt && selectedAppt.appointment_type === 2 && isAppointmentInPast(selectedAppt) && (
                   <select
                     onChange={(e) => {
                       const newType = Number(e.target.value)
