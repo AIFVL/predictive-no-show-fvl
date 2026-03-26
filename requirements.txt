@@ -6,3 +6,6 @@ jupyter
 ipykernel
 scikit-learn
 openpyxl
+imbalanced-learn
+xgboost
+lightgbm
