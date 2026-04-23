@@ -4,11 +4,18 @@ to run predictions from a feature dict.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import joblib
 import pandas as pd
+
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"X does not have valid feature names, but .* was fitted with feature names",
+)
 
 
 BASE_BACKEND = Path(__file__).resolve().parents[2]
@@ -54,10 +61,6 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
 
     df = pd.DataFrame([row])
 
-    # Predict label
-    y_pred = MODEL.predict(df)
-    label = int(y_pred[0])
-
     proba: Optional[float] = None
     if hasattr(MODEL, "predict_proba"):
         try:
@@ -69,6 +72,14 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
                 proba = float(p[0].max())
         except Exception:
             proba = None
+
+    # Predict label
+    threshold = METRICS.get("threshold")
+    if proba is not None and isinstance(threshold, (int, float)):
+        label = int(proba >= float(threshold))
+    else:
+        y_pred = MODEL.predict(df)
+        label = int(y_pred[0])
 
     return {
         "label": label,

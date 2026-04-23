@@ -11,18 +11,26 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List
 
 import joblib
 import pandas as pd
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 import difflib
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    f1_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.tree import DecisionTreeClassifier
+
+import lightgbm as lgb
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +46,23 @@ METRICS_PATH = MODEL_DIR / "metrics.json"
 
 TARGET_COLUMN = "Appointment Type"
 MAX_CREATION_ASSIGNMENT_INTERVAL = 365
+
+# Best-performing config taken from notebooks/05_Stacking_SMOTE_Correcto.ipynb
+LGBM_BEST_PARAMS: Dict[str, Any] = {
+    "objective": "binary",
+    "random_state": 42,
+    "n_jobs": -1,
+    "verbose": -1,
+    "subsample": 0.8,
+    "reg_lambda": 0.5,
+    "reg_alpha": 0.3,
+    "num_leaves": 63,
+    "n_estimators": 600,
+    "min_child_samples": 10,
+    "max_depth": 5,
+    "learning_rate": 0.08,
+    "colsample_bytree": 0.7,
+}
 
 RENAME_MAP = {
     "0ppointment Type": "Appointment Type",
@@ -212,7 +237,7 @@ def resolve_feature_sets(df: pd.DataFrame) -> FeatureConfig:
     return FeatureConfig(numeric=numeric, categorical=categorical)
 
 
-def build_pipeline(config: FeatureConfig, model: DecisionTreeClassifier | None = None) -> Pipeline:
+def build_pipeline(config: FeatureConfig, model: Any | None = None) -> Pipeline:
     """Construct the sklearn pipeline with preprocessing and estimator."""
 
     numeric_transformer = Pipeline(
@@ -240,22 +265,44 @@ def build_pipeline(config: FeatureConfig, model: DecisionTreeClassifier | None =
         remainder="drop",
     )
 
-    estimator = model or DecisionTreeClassifier(
-        random_state=42,
-        max_depth=10,
-        min_samples_split=50,
-        min_samples_leaf=20,
-        criterion="entropy",
+    estimator = model or lgb.LGBMClassifier(**LGBM_BEST_PARAMS)
+
+    # Important: SMOTE must only run during fitting on the training split.
+    # Using imblearn's Pipeline ensures the sampler is applied during fit,
+    # and is effectively a no-op during inference.
+    return ImbPipeline(
+        steps=[
+            ("preprocess", preprocessor),
+            ("smote", SMOTE(random_state=42, k_neighbors=5)),
+            ("model", estimator),
+        ]
     )
 
-    return Pipeline(steps=[("preprocess", preprocessor), ("model", estimator)])
+
+def tune_threshold_f1_macro(y_true: pd.Series, proba: pd.Series) -> float:
+    """Find threshold that maximizes macro F1 on a clean validation set."""
+
+    thresholds = [i / 1000 for i in range(200, 801)]  # 0.200 .. 0.800
+    best_th = 0.5
+    best_score = -1.0
+
+    y_true_arr = y_true.to_numpy()
+    proba_arr = proba.to_numpy()
+    for th in thresholds:
+        preds = (proba_arr >= th).astype(int)
+        score = f1_score(y_true_arr, preds, average="macro", zero_division=0)
+        if score > best_score:
+            best_score = float(score)
+            best_th = float(th)
+
+    return best_th
 
 
 # ---------------------------------------------------------------------------
 # Training orchestration
 # ---------------------------------------------------------------------------
 
-def train_and_serialize(model: DecisionTreeClassifier | None = None) -> Dict[str, object]:
+def train_and_serialize(model: Any | None = None) -> Dict[str, object]:
     """Train the pipeline and persist artifacts.
 
     Returns a dictionary with evaluation metrics.
@@ -277,21 +324,41 @@ def train_and_serialize(model: DecisionTreeClassifier | None = None) -> Dict[str
     X = df_ready[feature_columns].copy()
     y = df_ready[TARGET_COLUMN].astype(int)
 
+    # 70 / 15 / 15 split (train / val / test) so we can tune a threshold
     stratify = y if y.nunique() > 1 else None
-    X_train, X_test, y_train, y_test = train_test_split(
+    X_train, X_tmp, y_train, y_tmp = train_test_split(
         X,
         y,
-        test_size=0.2,
+        test_size=0.30,
         random_state=42,
         stratify=stratify,
+    )
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_tmp,
+        y_tmp,
+        test_size=0.50,
+        random_state=42,
+        stratify=(y_tmp if y_tmp.nunique() > 1 else None),
     )
 
     pipeline = build_pipeline(config, model=model)
     pipeline.fit(X_train, y_train)
 
-    y_pred = pipeline.predict(X_test)
+    # Threshold tuning on validation
+    val_proba = pd.Series(pipeline.predict_proba(X_val)[:, 1])
+    best_threshold = tune_threshold_f1_macro(y_val.reset_index(drop=True), val_proba)
+
+    # Evaluate on test using tuned threshold
+    test_proba = pipeline.predict_proba(X_test)[:, 1]
+    y_pred = (test_proba >= best_threshold).astype(int)
+
     accuracy = float(accuracy_score(y_test, y_pred))
     report = classification_report(y_test, y_pred, digits=3, output_dict=True)
+    roc_auc = None
+    try:
+        roc_auc = float(roc_auc_score(y_test, test_proba))
+    except Exception:
+        roc_auc = None
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(pipeline, MODEL_ARTIFACT_PATH)
@@ -302,11 +369,18 @@ def train_and_serialize(model: DecisionTreeClassifier | None = None) -> Dict[str
     df_ready.to_csv(processed_path, index=False)
     print(f"Saved cleaned dataset snapshot to {processed_path!s}.")
 
-    metrics = {
+    metrics: Dict[str, Any] = {
+        "model_version": "lightgbm_smote",
         "accuracy": accuracy,
+        "roc_auc": roc_auc,
+        "threshold": float(best_threshold),
         "feature_columns": feature_columns,
         "target_distribution": y.value_counts(normalize=True).to_dict(),
         "classification_report": report,
+        "model_params": {
+            "lightgbm": dict(LGBM_BEST_PARAMS),
+            "smote": {"random_state": 42, "k_neighbors": 5},
+        },
     }
 
     with METRICS_PATH.open("w", encoding="utf-8") as fp:

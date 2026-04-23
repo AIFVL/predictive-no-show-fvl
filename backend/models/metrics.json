@@ -1,5 +1,8 @@
 {
-  "accuracy": 0.7724306688417618,
+  "model_version": "lightgbm_smote",
+  "accuracy": 0.8209496194273287,
+  "roc_auc": 0.899388530357896,
+  "threshold": 0.547,
   "feature_columns": [
     "Age",
     "Number of Diseases",
@@ -20,29 +23,50 @@
   },
   "classification_report": {
     "0": {
-      "precision": 0.8266062602965404,
-      "recall": 0.8283120099050764,
-      "f1-score": 0.8274582560296846,
-      "support": 2423.0
+      "precision": 0.8373278939316675,
+      "recall": 0.9036873968079252,
+      "f1-score": 0.8692429857067231,
+      "support": 1817.0
     },
     "1": {
-      "precision": 0.6672,
-      "recall": 0.6645418326693228,
-      "f1-score": 0.665868263473054,
-      "support": 1255.0
+      "precision": 0.7807017543859649,
+      "recall": 0.6613588110403397,
+      "f1-score": 0.7160919540229885,
+      "support": 942.0
     },
-    "accuracy": 0.7724306688417618,
+    "accuracy": 0.8209496194273287,
     "macro avg": {
-      "precision": 0.7469031301482703,
-      "recall": 0.7464269212871996,
-      "f1-score": 0.7466632597513693,
-      "support": 3678.0
+      "precision": 0.8090148241588162,
+      "recall": 0.7825231039241325,
+      "f1-score": 0.7926674698648558,
+      "support": 2759.0
     },
     "weighted avg": {
-      "precision": 0.7722139664759428,
-      "recall": 0.7724306688417618,
-      "f1-score": 0.7723208333383927,
-      "support": 3678.0
+      "precision": 0.8179941413212827,
+      "recall": 0.8209496194273287,
+      "f1-score": 0.8169529270455856,
+      "support": 2759.0
+    }
+  },
+  "model_params": {
+    "lightgbm": {
+      "objective": "binary",
+      "random_state": 42,
+      "n_jobs": -1,
+      "verbose": -1,
+      "subsample": 0.8,
+      "reg_lambda": 0.5,
+      "reg_alpha": 0.3,
+      "num_leaves": 63,
+      "n_estimators": 600,
+      "min_child_samples": 10,
+      "max_depth": 5,
+      "learning_rate": 0.08,
+      "colsample_bytree": 0.7
+    },
+    "smote": {
+      "random_state": 42,
+      "k_neighbors": 5
     }
   }
 }

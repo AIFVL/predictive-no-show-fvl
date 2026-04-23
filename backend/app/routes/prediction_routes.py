@@ -55,19 +55,59 @@ def predictions_for_waiting(medic_id: str | None = None):
 
         feature_columns = METRICS.get("feature_columns", [])
 
+        def _norm_col(name: str) -> str:
+            return (
+                str(name)
+                .strip()
+                .lower()
+                .replace("_", " ")
+                .replace("-", " ")
+            )
+
+        def _first_col_by_aliases(aliases: set[str]) -> str | None:
+            for c in df.columns:
+                if _norm_col(c) in aliases:
+                    return c
+            return None
+
+        patient_col = _first_col_by_aliases(
+            {
+                "patient id",
+                "patientid",
+                "patient_id",
+                "id patient",
+                "idpatient",
+                "id_patient",
+            }
+        )
+        medic_col = _first_col_by_aliases(
+            {
+                "medic id",
+                "medicid",
+                "medic_id",
+                "id medic",
+                "idmedic",
+                "id_medic",
+                "doctor id",
+                "doctorid",
+                "doctor_id",
+            }
+        )
+
         for a in waiting:
-            pid = str(a.patient_id)
-            # look for matching patient row in processed df using Id Patient (case-insensitive)
-            match_cols = [c for c in df.columns if c.lower().replace('_', ' ').strip() in ("id patient", "id_patient", "idpatient", "id patient")]
+            pid = str(a.patient_id).strip()
+            mid = str(a.medic_id).strip() if getattr(a, "medic_id", None) is not None else None
+
             matched_row = None
-            if match_cols:
-                col = match_cols[0]
-                found = df[df[col].astype(str).str.strip() == pid]
-                if not found.empty:
-                    matched_row = found.iloc[0]
-            # fallback: try matching against 'Id Patient' exact
-            if matched_row is None and 'Id Patient' in df.columns:
-                found = df[df['Id Patient'].astype(str).str.strip() == pid]
+            if patient_col is not None:
+                found = df[df[patient_col].astype(str).str.strip() == pid]
+
+                # If medic_id exists in the processed dataset, try to disambiguate by medic.
+                if mid is not None and medic_col is not None and not found.empty:
+                    found2 = found[found[medic_col].astype(str).str.strip() == mid]
+                    if not found2.empty:
+                        found = found2
+
                 if not found.empty:
                     matched_row = found.iloc[0]
 

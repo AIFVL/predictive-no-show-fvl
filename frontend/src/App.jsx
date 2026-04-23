@@ -1,9 +1,84 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 // CSS loaded from CDN in index.html
+
+const TYPE_LABELS = {
+  0: 'Asistida',
+  1: 'No show',
+  2: 'En espera'
+}
+
+// Color helpers for probability-based event styling
+const clamp01 = (x) => Math.max(0, Math.min(1, x))
+
+const hexToRgb = (hex) => {
+  const h = String(hex || '').replace('#', '')
+  const full = h.length === 3 ? h.split('').map(ch => ch + ch).join('') : h
+  const n = parseInt(full, 16)
+  if (!Number.isFinite(n)) return null
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+const rgbToHex = ({ r, g, b }) => {
+  const to2 = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')
+  return `#${to2(r)}${to2(g)}${to2(b)}`
+}
+
+const lerp = (a, b, t) => a + (b - a) * t
+
+const lerpHex = (aHex, bHex, t) => {
+  const a = hexToRgb(aHex)
+  const b = hexToRgb(bHex)
+  if (!a || !b) return bHex
+  return rgbToHex({
+    r: lerp(a.r, b.r, t),
+    g: lerp(a.g, b.g, t),
+    b: lerp(a.b, b.b, t),
+  })
+}
+
+// Map probability of attendance to a smooth red->yellow->green palette.
+// 0.0 => red, 0.5 => yellow, 1.0 => green.
+const colorFromProbAttend = (probAttend) => {
+  const p = clamp01(Number(probAttend))
+  const RED = '#dc2626'
+  const YELLOW = '#f59e0b'
+  const GREEN = '#10b981'
+  if (p <= 0.5) return lerpHex(RED, YELLOW, p / 0.5)
+  return lerpHex(YELLOW, GREEN, (p - 0.5) / 0.5)
+}
+
+const relativeLuminance = ({ r, g, b }) => {
+  const toLinear = (c) => {
+    const s = c / 255
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  }
+  const R = toLinear(r)
+  const G = toLinear(g)
+  const B = toLinear(b)
+  return 0.2126 * R + 0.7152 * G + 0.0722 * B
+}
+
+const contrastRatio = (l1, l2) => {
+  const [L1, L2] = l1 >= l2 ? [l1, l2] : [l2, l1]
+  return (L1 + 0.05) / (L2 + 0.05)
+}
+
+const bestTextColorForBg = (bgHex) => {
+  const rgb = hexToRgb(bgHex)
+  if (!rgb) return '#ffffff'
+  const bgLum = relativeLuminance(rgb)
+  const whiteLum = 1
+  const blackLum = 0
+
+  const cWhite = contrastRatio(whiteLum, bgLum)
+  const cBlack = contrastRatio(bgLum, blackLum)
+  // Use near-black for better look than pure black.
+  return cBlack >= cWhite ? '#111827' : '#ffffff'
+}
 
 function App() {
   // Top-level component state
@@ -11,32 +86,13 @@ function App() {
   const [appointments, setAppointments] = useState([])
   // `predictionsMap` stores prediction results keyed by appointment id
   const [predictionsMap, setPredictionsMap] = useState({})
-  const TYPE_LABELS = {
-    0: 'Asistida',
-    1: 'No show',
-    2: 'En espera'
-  }
   const [showForm, setShowForm] = useState(false)
   // `form` stores controlled inputs for the add-appointment form
   const [form, setForm] = useState({ medic_id: '', patient_id: '', hour: 9, day: 1, month: 1, search: '' })
 
-  // Fetch all appointments from the backend API and refresh predictions map
-  const fetchAppointments = async () => {
-    try {
-      const res = await fetch('http://localhost:8000/appointments')
-      const data = await res.json()
-      const appts = Array.isArray(data) ? data : []
-      setAppointments(appts)
-      // After loading appointments, refresh prediction data for waiting appointments
-      fetchPredictionsWaiting()
-    } catch (err) {
-      console.error('Failed to fetch appointments', err)
-    }
-  }
-
   // Query backend for predictions for appointments in 'En espera'
   // Builds a map { appointment_id: predictionObject } for quick lookup
-  const fetchPredictionsWaiting = async (medicId) => {
+  const fetchPredictionsWaiting = useCallback(async (medicId) => {
     try {
       const url = medicId ? `http://localhost:8000/predictions/waiting?medic_id=${encodeURIComponent(medicId)}` : `http://localhost:8000/predictions/waiting`
       const res = await fetch(url)
@@ -54,9 +110,23 @@ function App() {
     } catch (err) {
       console.error('Failed to fetch waiting predictions', err)
     }
-  }
+  }, [])
 
-  useEffect(() => { fetchAppointments() }, [])
+  // Fetch all appointments from the backend API and refresh predictions map
+  const fetchAppointments = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:8000/appointments')
+      const data = await res.json()
+      const appts = Array.isArray(data) ? data : []
+      setAppointments(appts)
+      // After loading appointments, refresh prediction data for waiting appointments
+      fetchPredictionsWaiting()
+    } catch (err) {
+      console.error('Failed to fetch appointments', err)
+    }
+  }, [fetchPredictionsWaiting])
+
+  useEffect(() => { fetchAppointments() }, [fetchAppointments])
 
   // Toggle the add-appointment form visibility
   const toggleForm = () => setShowForm(v => !v)
@@ -84,6 +154,8 @@ function App() {
       }
       const data = await res.json()
       setAppointments(Array.isArray(data) ? data : [])
+      // Keep prediction map in sync with the filtered appointment list.
+      fetchPredictionsWaiting(medicId)
     } catch (err) {
       console.error('Search failed', err)
       alert('Error searching appointments: ' + err.message)
@@ -125,7 +197,26 @@ function App() {
         1: '#dc2626', // No show -> red
         2: '#2563eb'  // En espera -> blue/default
       }
-      const color = colorMap[appt.appointment_type] || '#2563eb'
+      let color = colorMap[appt.appointment_type] || '#2563eb'
+
+      // If appointment is waiting and we have a prediction, color by probability of attendance.
+      if (appt.appointment_type === 2) {
+        const p = predictionsMap[String(appt.id)]
+        const probAttend =
+          p?.prob_attend != null
+            ? Number(p.prob_attend)
+            : p?.prob_no_show != null
+              ? 1 - Number(p.prob_no_show)
+              : p?.probability != null
+                ? 1 - Number(p.probability)
+                : null
+
+        if (probAttend != null && Number.isFinite(probAttend)) {
+          color = colorFromProbAttend(probAttend)
+        }
+      }
+
+      const textColor = bestTextColorForBg(color)
 
       return {
         id: String(appt.id),
@@ -134,9 +225,10 @@ function App() {
         allDay: false,
         extendedProps: appt,
         color,
+        textColor,
       }
     })
-  }, [appointments])
+  }, [appointments, predictionsMap])
 
   const [selectedAppt, setSelectedAppt] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
@@ -334,9 +426,21 @@ function App() {
                 {selectedAppt.appointment_type === 2 && predictionsMap[String(selectedAppt.id)] && (
                   <div>
                     <strong>Predicción de asistencia:</strong>{' '}
-                    {predictionsMap[String(selectedAppt.id)].prob_attend != null
-                      ? `${(predictionsMap[String(selectedAppt.id)].prob_attend * 100).toFixed(1)}%`
-                      : '—'}
+                    {(() => {
+                      const p = predictionsMap[String(selectedAppt.id)]
+                      const probAttend =
+                        p?.prob_attend != null
+                          ? Number(p.prob_attend)
+                          : p?.prob_no_show != null
+                            ? 1 - Number(p.prob_no_show)
+                            : p?.probability != null
+                              ? 1 - Number(p.probability)
+                              : null
+
+                      return probAttend != null && Number.isFinite(probAttend)
+                        ? `${(probAttend * 100).toFixed(1)}%`
+                        : '—'
+                    })()}
                   </div>
                 )}
               </div>
