@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Any, Dict, Optional
 from datetime import datetime
 
@@ -20,22 +20,36 @@ class PredictionResponse(BaseModel):
 
 
 class AppointmentCreate(BaseModel):
-    medic_id: str
-    patient_id: str
-    hour: int
-    day: int
-    month: int
-    # appointment_type is set by server when creating a new appointment
-    pass
+    medic_id: str = Field(..., min_length=1, max_length=64)
+    patient_id: str = Field(..., min_length=1, max_length=64)
+    hour: int = Field(..., ge=0, le=23)
+    day: int = Field(..., ge=1, le=31)
+    month: int = Field(..., ge=1, le=12)
+
+    @field_validator("medic_id", "patient_id")
+    @classmethod
+    def strip_and_validate_ids(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
 
 
 class AppointmentUpdate(BaseModel):
-    medic_id: str
-    patient_id: str
-    hour: int
-    day: int
-    month: int
-    appointment_type: int
+    medic_id: str = Field(..., min_length=1, max_length=64)
+    patient_id: str = Field(..., min_length=1, max_length=64)
+    hour: int = Field(..., ge=0, le=23)
+    day: int = Field(..., ge=1, le=31)
+    month: int = Field(..., ge=1, le=12)
+    appointment_type: int = Field(..., ge=0, le=2)
+
+    @field_validator("medic_id", "patient_id")
+    @classmethod
+    def strip_and_validate_ids(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
 
 
 class AppointmentOut(BaseModel):
@@ -48,5 +62,4 @@ class AppointmentOut(BaseModel):
     appointment_type: int
     created_at: Optional[datetime]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

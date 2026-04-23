@@ -61,6 +61,15 @@ def get_appointments_by_medic(medic_id: str):
 
 @appointment_routes.put("/{appointment_id}", response_model=AppointmentOut)
 def update_appointment(appointment_id: int, payload: AppointmentUpdate):
+    if not (0 <= payload.hour <= 23):
+        raise HTTPException(status_code=400, detail="hour must be between 0 and 23")
+    if not (1 <= payload.day <= 31):
+        raise HTTPException(status_code=400, detail="day must be between 1 and 31")
+    if not (1 <= payload.month <= 12):
+        raise HTTPException(status_code=400, detail="month must be between 1 and 12")
+    if payload.appointment_type not in (0, 1, 2):
+        raise HTTPException(status_code=400, detail="appointment_type must be 0, 1 or 2")
+
     db = SessionLocal()
     try:
         appt = db_service.update_appointment(
@@ -77,6 +86,8 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate):
 
 @appointment_routes.patch("/type/{appointment_id}", response_model=AppointmentOut)
 def update_appointment_type(appointment_id: int, appointment_type: int):
+    if appointment_type not in (0, 1, 2):
+        raise HTTPException(status_code=400, detail="appointment_type must be 0, 1 or 2")
     db = SessionLocal()
     try:
         appt = db_service.update_appointment_type(

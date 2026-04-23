@@ -89,6 +89,25 @@ function App() {
   const [showForm, setShowForm] = useState(false)
   // `form` stores controlled inputs for the add-appointment form
   const [form, setForm] = useState({ medic_id: '', patient_id: '', hour: 9, day: 1, month: 1, search: '' })
+  const [formErrors, setFormErrors] = useState({})
+
+  const validateAppointmentForm = (nextForm) => {
+    const errors = {}
+    const medicId = String(nextForm.medic_id ?? '').trim()
+    const patientId = String(nextForm.patient_id ?? '').trim()
+    const hour = Number(nextForm.hour)
+    const day = Number(nextForm.day)
+    const month = Number(nextForm.month)
+
+    if (!medicId) errors.medic_id = 'Requerido'
+    if (!patientId) errors.patient_id = 'Requerido'
+    if (!Number.isFinite(hour) || hour < 0 || hour > 23) errors.hour = 'Debe ser 0–23'
+    if (!Number.isFinite(day) || day < 1 || day > 31) errors.day = 'Debe ser 1–31'
+    if (!Number.isFinite(month) || month < 1 || month > 12) errors.month = 'Debe ser 1–12'
+
+    setFormErrors(errors)
+    return Object.keys(errors).length === 0
+  }
 
   // Query backend for predictions for appointments in 'En espera'
   // Builds a map { appointment_id: predictionObject } for quick lookup
@@ -134,7 +153,18 @@ function App() {
   // Generic controlled input handler for the add form
   const handleChange = (e) => {
     const { name, value } = e.target
-    setForm(prev => ({ ...prev, [name]: name === 'hour' || name === 'day' || name === 'month' ? Number(value) : value }))
+    setForm(prev => {
+      const next = { ...prev, [name]: name === 'hour' || name === 'day' || name === 'month' ? Number(value) : value }
+      // Clear field-level error as the user edits
+      if (formErrors[name]) {
+        setFormErrors(curr => {
+          const copy = { ...curr }
+          delete copy[name]
+          return copy
+        })
+      }
+      return next
+    })
   }
 
 
@@ -165,11 +195,18 @@ function App() {
   // Submit handler for the add-appointment form
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const normalized = {
+      ...form,
+      medic_id: String(form.medic_id ?? '').trim(),
+      patient_id: String(form.patient_id ?? '').trim(),
+    }
+    if (!validateAppointmentForm(normalized)) return
+
     try {
       const res = await fetch('http://localhost:8000/appointments/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify(normalized)
       })
       if (!res.ok) {
         const text = await res.text()
@@ -178,6 +215,7 @@ function App() {
       // refresh and close form
       await fetchAppointments()
       setShowForm(false)
+      setFormErrors({})
       setForm({ medic_id: '', patient_id: '', hour: 9, day: 1, month: 1 })
     } catch (err) {
       console.error('Failed to create appointment', err)
@@ -351,26 +389,31 @@ function App() {
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Médico ID</label>
                 <input name="medic_id" value={form.medic_id} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+                {formErrors.medic_id && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.medic_id}</div>}
               </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Paciente ID</label>
                 <input name="patient_id" value={form.patient_id} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+                {formErrors.patient_id && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.patient_id}</div>}
               </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Hora</label>
                 <input name="hour" type="number" min="0" max="23" value={form.hour} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+                {formErrors.hour && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.hour}</div>}
               </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Día</label>
                 <input name="day" type="number" min="1" max="31" value={form.day} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
+                {formErrors.day && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.day}</div>}
               </div>
 
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Mes</label>
                 <input name="month" type="number" min="1" max="12" value={form.month} onChange={handleChange} required style={{ padding: 10, borderRadius: 8, border: '1px solid #e6edf3', width: 140 }} />
+                {formErrors.month && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.month}</div>}
               </div>
             </div>
 
