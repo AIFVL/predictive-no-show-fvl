@@ -23,7 +23,7 @@ from sklearn.metrics import (
     precision_recall_curve,
     auc,
 )
-from sklearn.model_selection import RandomizedSearchCV
+from sklearn.model_selection import RandomizedSearchCV, train_test_split
 from sklearn.metrics import make_scorer
 
 from utils.data_loader import (
@@ -56,6 +56,7 @@ def tune_threshold(
     objective,
     min_accuracy,
     min_precision,
+    min_recall,
 ):
     grid = [start + i * (end - start) / (points - 1) for i in range(points)]
     best_th = grid[0]
@@ -68,6 +69,7 @@ def tune_threshold(
         f1_macro = f1_score(y_true, preds, average="macro", zero_division=0)
         f1_no_show = f1_score(y_true, preds, average="binary", zero_division=0)
         precision = precision_score(y_true, preds, zero_division=0)
+        recall = recall_score(y_true, preds, zero_division=0)
 
         if objective == "f1_no_show":
             score = f1_no_show
@@ -78,7 +80,12 @@ def tune_threshold(
         else:
             score = f1_macro
 
-        if acc >= min_accuracy and precision >= min_precision and score > best_score:
+        if (
+            acc >= min_accuracy
+            and precision >= min_precision
+            and recall >= min_recall
+            and score > best_score
+        ):
             best_score = score
             best_th = th
 
@@ -207,6 +214,7 @@ def main(config_path: str) -> None:
         cfg["threshold"].get("objective", "f1_macro"),
         cfg["threshold"].get("min_accuracy", 0.0),
         cfg["threshold"].get("min_precision", 0.0),
+        cfg["threshold"].get("min_recall", 0.0),
     )
 
     preds_val = (probs_val >= th).astype(int)
