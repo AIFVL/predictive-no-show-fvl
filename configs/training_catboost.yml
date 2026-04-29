@@ -15,19 +15,18 @@ data:
     - Insurance Type
     - Day
     - Month
-  use_one_hot: false
-  scale_features: false
+  use_one_hot: true
 split:
   test_size: 0.15
   val_size: 0.15
   random_state: 42
 model:
-  name: catboost_no_show
+  name: catboost_final
   config_path: models/catboost/config.yml
   module: models.catboost.model
 output:
-  model_path: outputs/catboost_no_show.joblib
-  metrics_path: outputs/catboost_no_show_metrics.json
+  model_path: outputs/catboost/catboost_final.joblib
+  metrics_path: outputs/catboost/catboost_final_metrics.json
 threshold:
   grid_start: 0.20
   grid_end: 0.80
@@ -36,11 +35,12 @@ threshold:
   min_accuracy: 0.0
 search:
   enabled: true
-  n_iter: 40
+  n_iter: 25
   cv: 5
   params:
     clf__depth: [5, 6, 7, 8]
     clf__learning_rate: [0.03, 0.05, 0.08]
-    clf__iterations: [400, 600, 800]
+    clf__iterations: [400, 600, 900]
     clf__l2_leaf_reg: [2.0, 3.0, 5.0]
-    clf__class_weights: [[1.0, 2.0], [1.0, 2.5], [1.0, 3.0]]
+    clf__bagging_temperature: [0.0, 0.5, 1.0]
+    clf__border_count: [64, 128]

@@ -20,12 +20,12 @@ split:
   val_size: 0.15
   random_state: 42
 model:
-  name: stacking_no_show
+  name: stacking_final
   config_path: models/stacking/config.yml
   module: models.stacking.model
 output:
-  model_path: outputs/stacking_no_show.joblib
-  metrics_path: outputs/stacking_no_show_metrics.json
+  model_path: outputs/stacking/stacking_final.joblib
+  metrics_path: outputs/stacking/stacking_final_metrics.json
 threshold:
   grid_start: 0.20
   grid_end: 0.80
@@ -34,7 +34,7 @@ threshold:
   min_accuracy: 0.0
 search:
   enabled: true
-  n_iter: 30
+  n_iter: 20
   cv: 5
   params:
     clf__xgb__n_estimators: [600, 900]
@@ -56,12 +56,9 @@ search:
     clf__lgb__min_child_samples: [5, 20]
     clf__lgb__reg_lambda: [0.0, 1.0]
     clf__lgb__reg_alpha: [0.0, 0.3]
-    clf__hgb__max_iter: [200, 600]
-    clf__hgb__max_depth: [5, 9]
-    clf__hgb__learning_rate: [0.03, 0.08]
-    clf__hgb__max_leaf_nodes: [31, 80]
-    clf__hgb__min_samples_leaf: [5, 20]
-    clf__hgb__l2_regularization: [0.0, 0.5]
-    clf__hgb__max_features: [0.7, 1.0]
+    clf__cat__depth: [5, 7]
+    clf__cat__learning_rate: [0.03, 0.05]
+    clf__cat__iterations: [400, 700]
+    clf__cat__l2_leaf_reg: [2.0, 4.0]
     clf__final_estimator__C: [0.5, 1.5]
     clf__final_estimator__class_weight: [balanced]

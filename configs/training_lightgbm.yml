@@ -15,35 +15,36 @@ data:
     - Insurance Type
     - Day
     - Month
+  use_one_hot: true
 split:
   test_size: 0.15
   val_size: 0.15
   random_state: 42
 model:
-  name: lightgbm_smote
+  name: lightgbm_final
   config_path: models/lightgbm/config.yml
   module: models.lightgbm.model
-search:
-  enabled: true
-  n_iter: 40
-  cv: 5
-  params:
-    clf__n_estimators: [600, 800, 1000, 1200]
-    clf__max_depth: [3, 5, 7, 9]
-    clf__learning_rate: [0.03, 0.05, 0.08, 0.1]
-    clf__num_leaves: [31, 63, 80, 100]
-    clf__subsample: [0.7, 0.8, 0.9]
-    clf__colsample_bytree: [0.6, 0.7, 0.8]
-    clf__min_child_samples: [5, 10, 20]
-    clf__reg_lambda: [0.0, 0.5, 1.0, 2.0]
-    clf__reg_alpha: [0.0, 0.1, 0.3, 0.5]
-    clf__scale_pos_weight: [1.5, 1.93, 2.3, 2.7]
 output:
-  model_path: outputs/lightgbm_smote.joblib
-  metrics_path: outputs/lightgbm_smote_metrics.json
+  model_path: outputs/lightgbm/lightgbm_final.joblib
+  metrics_path: outputs/lightgbm/lightgbm_final_metrics.json
 threshold:
   grid_start: 0.20
   grid_end: 0.80
   grid_points: 300
   objective: f1_no_show
   min_accuracy: 0.0
+search:
+  enabled: true
+  n_iter: 25
+  cv: 5
+  params:
+    clf__n_estimators: [400, 600, 900]
+    clf__max_depth: [4, 6, 8]
+    clf__learning_rate: [0.03, 0.05, 0.08]
+    clf__num_leaves: [31, 63, 127]
+    clf__subsample: [0.7, 0.85, 1.0]
+    clf__colsample_bytree: [0.6, 0.8, 1.0]
+    clf__min_child_samples: [5, 10, 20]
+    clf__reg_lambda: [0.0, 0.5, 1.0]
+    clf__reg_alpha: [0.0, 0.3, 0.6]
+    clf__scale_pos_weight: [1.5, 2.0, 2.5, 3.0]

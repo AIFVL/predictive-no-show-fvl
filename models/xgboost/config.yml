@@ -1,5 +1,5 @@
 smote:
-  enabled: true
+  enabled: false
   random_state: 42
   k_neighbors: 5
 xgboost:
@@ -13,8 +13,8 @@ xgboost:
   learning_rate: 0.05
   subsample: 0.8
   colsample_bytree: 0.8
-  gamma: 0.0
+  gamma: 0.2
   min_child_weight: 1
   reg_lambda: 1.0
-  reg_alpha: 0.1
-  scale_pos_weight: 3.0
+  reg_alpha: 0.3
+  scale_pos_weight: 2.5

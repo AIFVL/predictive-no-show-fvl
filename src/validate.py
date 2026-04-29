@@ -16,8 +16,12 @@ from sklearn.metrics import (
     cohen_kappa_score,
     roc_auc_score,
     precision_recall_curve,
+    roc_curve,
     auc,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
 )
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +58,51 @@ def resolve_path(path: str | Path) -> Path:
     return (REPO_ROOT / path).resolve()
 
 
-def main(model_path: str, config_path: str, output_path: str | None) -> None:
+def save_plots(y_true, y_prob, y_pred, output_dir: Path, prefix: str) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    disp = ConfusionMatrixDisplay(cm)
+    disp.plot(cmap="Blues", colorbar=False)
+    plt.title("Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(output_dir / f"{prefix}_confusion_matrix.png", dpi=200)
+    plt.close()
+
+    # ROC curve
+    fpr, tpr, _ = roc_curve(y_true, y_prob)
+    plt.figure()
+    plt.plot(fpr, tpr, label="ROC")
+    plt.plot([0, 1], [0, 1], linestyle="--", color="gray")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("ROC Curve")
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+    plt.savefig(output_dir / f"{prefix}_roc_curve.png", dpi=200)
+    plt.close()
+
+    # Precision-Recall curve
+    precision, recall, _ = precision_recall_curve(y_true, y_prob)
+    plt.figure()
+    plt.plot(recall, precision, label="PR")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Precision-Recall Curve")
+    plt.legend(loc="lower left")
+    plt.tight_layout()
+    plt.savefig(output_dir / f"{prefix}_pr_curve.png", dpi=200)
+    plt.close()
+
+
+def main(
+    model_path: str,
+    config_path: str,
+    output_path: str | None,
+    plots_dir: str | None,
+    prefix: str,
+) -> None:
     config_path = resolve_path(config_path)
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -113,16 +161,21 @@ def main(model_path: str, config_path: str, output_path: str | None) -> None:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(metrics_test, f, indent=2)
 
+    if plots_dir:
+        save_plots(y_te, probs_test, preds_test, resolve_path(plots_dir), prefix)
+
     print("Metricas de validacion (test):")
     for k, v in metrics_test.items():
         print(f"  {k}: {v:.4f}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Validar modelo LightGBM")
-    parser.add_argument("--model", default="outputs/lightgbm_smote.joblib")
-    parser.add_argument("--config", default="configs/training.yml")
-    parser.add_argument("--output", default=None)
+    parser = argparse.ArgumentParser(description="Validar modelo de stacking")
+    parser.add_argument("--model", default="outputs/stacking/stacking_final.joblib")
+    parser.add_argument("--config", default="configs/training_stack.yml")
+    parser.add_argument("--output", default="outputs/stacking/stacking_final_test_metrics.json")
+    parser.add_argument("--plots-dir", default="outputs/stacking")
+    parser.add_argument("--prefix", default="stacking_final")
     args = parser.parse_args()
 
-    main(args.model, args.config, args.output)
+    main(args.model, args.config, args.output, args.plots_dir, args.prefix)

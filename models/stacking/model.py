@@ -1,8 +1,9 @@
 from imblearn.pipeline import Pipeline
 from imblearn.over_sampling import SMOTE
-from sklearn.ensemble import HistGradientBoostingClassifier, StackingClassifier
+from sklearn.ensemble import StackingClassifier
 from sklearn.linear_model import LogisticRegression
 import lightgbm as lgb
+from catboost import CatBoostClassifier
 from xgboost import XGBClassifier
 
 
@@ -12,7 +13,7 @@ def build_pipeline(config: dict) -> Pipeline:
 
     lgb_cfg = config.get("lightgbm", {})
     xgb_cfg = config.get("xgboost", {})
-    hgb_cfg = config.get("histgb", {})
+    cat_cfg = config.get("catboost", {})
     meta_cfg = config.get("meta", {})
 
     use_smote = smote_cfg.get("enabled", False)
@@ -24,7 +25,7 @@ def build_pipeline(config: dict) -> Pipeline:
     estimators = [
         ("xgb", XGBClassifier(**xgb_cfg)),
         ("lgb", lgb.LGBMClassifier(**lgb_cfg)),
-        ("hgb", HistGradientBoostingClassifier(**hgb_cfg)),
+        ("cat", CatBoostClassifier(**cat_cfg)),
     ]
 
     final_estimator = LogisticRegression(**meta_cfg)
