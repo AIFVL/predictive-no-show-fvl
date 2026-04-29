@@ -54,3 +54,4 @@ catboost:
   l2_leaf_reg: 3.0
   auto_class_weights: Balanced
   verbose: false
+  allow_writing_files: false

@@ -20,12 +20,12 @@ split:
   val_size: 0.15
   random_state: 42
 model:
-  name: stacking_no_show
+  name: stacking_final
   config_path: models/stacking/config.yml
   module: models.stacking.model
 output:
-  model_path: outputs/stacking_no_show.joblib
-  metrics_path: outputs/stacking_no_show_metrics.json
+  model_path: outputs/stacking/stacking_final.joblib
+  metrics_path: outputs/stacking/stacking_final_metrics.json
 threshold:
   grid_start: 0.20
   grid_end: 0.80
@@ -33,8 +33,8 @@ threshold:
   objective: f1_no_show
   min_accuracy: 0.0
 search:
-  enabled: false
-  n_iter: 30
+  enabled: true
+  n_iter: 20
   cv: 5
   params:
     clf__xgb__n_estimators: [600, 900]

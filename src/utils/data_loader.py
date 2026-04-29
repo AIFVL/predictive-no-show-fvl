@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
+# Original features
 DEFAULT_FEATURES_NUM = [
     "Age",
     "Number of Diseases",
@@ -25,6 +26,7 @@ DEFAULT_FEATURES_CAT = [
     "Day",
     "Month",
 ]
+
 
 
 def find_repo_root(start: Path | None = None) -> Path:
@@ -45,7 +47,7 @@ def load_processed_df(processed_csv: str | Path | None = None) -> pd.DataFrame:
             processed_csv = repo_root / processed_csv
 
     if not processed_csv.exists():
-        raise FileNotFoundError(f"No se encontro df_limpio.csv en: {processed_csv}")
+        raise FileNotFoundError(f"No se encontro dataset en: {processed_csv}")
 
     return pd.read_csv(processed_csv)
 
@@ -74,6 +76,7 @@ def build_feature_frame(
     use_one_hot: bool = True,
     return_cat_features: bool = False,
 ) -> Tuple[pd.DataFrame, pd.Series, str] | Tuple[pd.DataFrame, pd.Series, str, List[int]]:
+    
     target_col = infer_target(df, target)
 
     num = [c for c in (features_num or DEFAULT_FEATURES_NUM) if c in df.columns]

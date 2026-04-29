@@ -1,5 +1,0 @@
-raw:
-  path: data/raw/database_non-shows.xlsx
-processed:
-  dir: data/processed
-  filename: df_limpio.csv
