@@ -15,7 +15,9 @@ class PatientInput(BaseModel):
 
 class PredictionResponse(BaseModel):
     label: int
+    final_label: Optional[int] = None
     probability: Optional[float]
+    verification: Optional[Dict[str, Any]] = None
     model_version: Optional[str] = None
 
 

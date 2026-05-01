@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 import joblib
 import pandas as pd
 
+from .double_verification import double_verify
+
 
 warnings.filterwarnings(
     "ignore",
@@ -37,10 +39,18 @@ def _load_artifacts() -> Dict[str, Any]:
 
     return {"model": model, "metrics": metrics}
 
+_MODEL: Any | None = None
+METRICS: Dict[str, Any] = {}
 
-ARTIFACTS = _load_artifacts()
-MODEL = ARTIFACTS["model"]
-METRICS = ARTIFACTS["metrics"]
+
+def _ensure_loaded() -> Any:
+    global _MODEL, METRICS
+    if _MODEL is not None:
+        return _MODEL
+    artifacts = _load_artifacts()
+    _MODEL = artifacts["model"]
+    METRICS = artifacts.get("metrics", {}) or {}
+    return _MODEL
 
 
 def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
@@ -50,6 +60,8 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
     - Calls the pipeline's `predict` and `predict_proba` when available.
     - Returns a dict with `label`, `probability` and optional `model_version`.
     """
+
+    model = _ensure_loaded()
 
     feature_columns = METRICS.get("feature_columns", [])
     if not feature_columns:
@@ -62,9 +74,9 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
     df = pd.DataFrame([row])
 
     proba: Optional[float] = None
-    if hasattr(MODEL, "predict_proba"):
+    if hasattr(model, "predict_proba"):
         try:
-            p = MODEL.predict_proba(df)
+            p = model.predict_proba(df)
             # binary classification assumed: prob of class 1
             if p.shape[1] == 2:
                 proba = float(p[0, 1])
@@ -73,20 +85,39 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             proba = None
 
-    # Predict label
+    # Predict label (model threshold)
     threshold = METRICS.get("threshold")
     if proba is not None and isinstance(threshold, (int, float)):
         label = int(proba >= float(threshold))
     else:
-        y_pred = MODEL.predict(df)
+        y_pred = model.predict(df)
         label = int(y_pred[0])
+
+    verification = None
+    final_label = None
+    dv_cfg = METRICS.get("double_verification")
+    if isinstance(dv_cfg, dict) and proba is not None and isinstance(threshold, (int, float)):
+        try:
+            verification = double_verify(
+                features=features,
+                probability_no_show=float(proba),
+                model_threshold=float(threshold),
+                config=dv_cfg,
+            )
+            final_label = verification.get("decision", {}).get("final_label")
+        except Exception:
+            verification = None
+            final_label = None
 
     return {
         "label": label,
+        "final_label": final_label,
         "probability": proba,
+        "verification": verification,
         "model_version": METRICS.get("model_version"),
     }
 
 
 def info() -> Dict[str, Any]:
+    # Do not force loading model.pkl for info.
     return {"model_path": str(MODEL_PATH), "metrics": METRICS}

@@ -80,6 +80,76 @@ const bestTextColorForBg = (bgHex) => {
   return cBlack >= cWhite ? '#111827' : '#ffffff'
 }
 
+const formatPercent = (p) => {
+  if (p == null) return '—'
+  const n = Number(p)
+  if (!Number.isFinite(n)) return '—'
+  return `${(n * 100).toFixed(1)}%`
+}
+
+const getProbAttendFromPrediction = (pred) => {
+  if (!pred) return null
+  if (pred.prob_attend != null) {
+    const v = Number(pred.prob_attend)
+    return Number.isFinite(v) ? v : null
+  }
+  if (pred.prob_no_show != null) {
+    const v = 1 - Number(pred.prob_no_show)
+    return Number.isFinite(v) ? v : null
+  }
+  if (pred.probability != null) {
+    const v = 1 - Number(pred.probability)
+    return Number.isFinite(v) ? v : null
+  }
+  return null
+}
+
+// Classify how safe/likely the patient will attend (asistir).
+// Uses both model probability and double-verification status when present.
+const classifyAttendanceSafety = (pred) => {
+  const probAttend = getProbAttendFromPrediction(pred)
+  const finalLabel = pred?.final_label ?? pred?.predicted_label ?? pred?.model_label
+  const status = pred?.verification_status
+
+  // Labels/colors already used in UI
+  const COLORS = {
+    danger: '#dc2626',
+    warn: '#f59e0b',
+    ok: '#10b981',
+    neutral: '#64748b',
+  }
+
+  // If final says no-show, then it's not safe to assume attendance.
+  if (finalLabel === 1) {
+    if (status === 'confirmed_no_show') {
+      return { level: 'Nada seguro', color: COLORS.danger, reason: 'No-show confirmado por doble verificación' }
+    }
+    return { level: 'Poco seguro', color: COLORS.warn, reason: 'No-show sin confirmación fuerte' }
+  }
+
+  // Predicted attendance
+  if (status === 'confirmed_show') {
+    return { level: 'Muy seguro', color: COLORS.ok, reason: 'Asistencia confirmada por doble verificación' }
+  }
+  if (status === 'contradictory_high_no_show_signals' || status === 'contradictory_high_attendance_signals') {
+    return { level: 'Poco seguro', color: COLORS.warn, reason: 'Señales contradictorias entre reglas' }
+  }
+
+  if (probAttend == null) {
+    return { level: 'Poco seguro', color: COLORS.neutral, reason: 'Sin probabilidad disponible' }
+  }
+
+  if (probAttend >= 0.80) return { level: 'Seguro', color: COLORS.ok, reason: 'Probabilidad de asistencia alta' }
+  if (probAttend >= 0.65) return { level: 'Poco seguro', color: COLORS.warn, reason: 'Probabilidad de asistencia moderada' }
+  return { level: 'Poco seguro', color: COLORS.warn, reason: 'Probabilidad de asistencia baja' }
+}
+
+const ruleTriggerLabel = (triggered) => {
+  if (triggered === true) return 'Cumple'
+  if (triggered === false) return 'No cumple'
+  return 'Sin datos'
+}
+
 function App() {
   // Top-level component state
   // `appointments` holds the list of appointments fetched from backend
@@ -271,6 +341,7 @@ function App() {
   const [selectedAppt, setSelectedAppt] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
   const [showSelectType, setShowSelectType] = useState(false)
+  const [detailsTab, setDetailsTab] = useState('info')
   const calendarRef = useRef(null)
 
   // Load detailed appointment info from backend and open modal
@@ -283,6 +354,7 @@ function App() {
       }
       const data = await res.json()
       setSelectedAppt(data)
+      setDetailsTab('info')
       setShowDetails(true)
     } catch (err) {
       console.error('Failed to fetch appointment info', err)
@@ -456,37 +528,156 @@ function App() {
           </div>
         </div>
         {showDetails && selectedAppt && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => setShowDetails(false)}>
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+            onClick={() => { setShowDetails(false); setShowSelectType(false); setDetailsTab('info') }}
+          >
             <div style={{ background: '#fff', padding: 20, borderRadius: 8, minWidth: 320, maxWidth: '90%' }} onClick={(e) => e.stopPropagation()}>
-              <h2 style={{ marginTop: 0 }}>Detalle de la cita #{selectedAppt.id}</h2>
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div><strong>Médico ID:</strong> {selectedAppt.medic_id ?? '—'}</div>
-                <div><strong>Paciente ID:</strong> {selectedAppt.patient_id}</div>
-                <div><strong>Fecha (día/mes/año):</strong> {`${selectedAppt.day}/${selectedAppt.month}/2026`}</div>
-                <div><strong>Hora:</strong> {selectedAppt.hour}:00</div>
-                <div><strong>Tipo de cita:</strong> {TYPE_LABELS[selectedAppt.appointment_type] ?? selectedAppt.appointment_type}</div>
-                <div><strong>Creada en:</strong> {selectedAppt.created_at ?? '—'}</div>
-                {selectedAppt.appointment_type === 2 && predictionsMap[String(selectedAppt.id)] && (
-                  <div>
-                    <strong>Predicción de asistencia:</strong>{' '}
-                    {(() => {
-                      const p = predictionsMap[String(selectedAppt.id)]
-                      const probAttend =
-                        p?.prob_attend != null
-                          ? Number(p.prob_attend)
-                          : p?.prob_no_show != null
-                            ? 1 - Number(p.prob_no_show)
-                            : p?.probability != null
-                              ? 1 - Number(p.probability)
-                              : null
+              <h2 style={{ marginTop: 0, marginBottom: 10 }}>Detalle de la cita #{selectedAppt.id}</h2>
 
-                      return probAttend != null && Number.isFinite(probAttend)
-                        ? `${(probAttend * 100).toFixed(1)}%`
-                        : '—'
-                    })()}
+              {(() => {
+                const pred = predictionsMap[String(selectedAppt.id)]
+                const hasVerification = !!pred?.verification
+                return (
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setDetailsTab('info')}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #e5e7eb',
+                        background: detailsTab === 'info' ? '#2563eb' : '#f3f4f6',
+                        color: detailsTab === 'info' ? '#fff' : '#111827',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Info
+                    </button>
+                    <button
+                      onClick={() => hasVerification && setDetailsTab('verification')}
+                      disabled={!hasVerification}
+                      title={!hasVerification ? 'No hay doble verificación disponible para esta cita' : ''}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #e5e7eb',
+                        background: detailsTab === 'verification' ? '#2563eb' : '#f3f4f6',
+                        color: detailsTab === 'verification' ? '#fff' : '#111827',
+                        cursor: hasVerification ? 'pointer' : 'not-allowed',
+                        opacity: hasVerification ? 1 : 0.6,
+                      }}
+                    >
+                      Doble verificación
+                    </button>
                   </div>
-                )}
-              </div>
+                )
+              })()}
+
+              {detailsTab === 'info' && (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div><strong>Médico ID:</strong> {selectedAppt.medic_id ?? '—'}</div>
+                  <div><strong>Paciente ID:</strong> {selectedAppt.patient_id}</div>
+                  <div><strong>Fecha (día/mes/año):</strong> {`${selectedAppt.day}/${selectedAppt.month}/2026`}</div>
+                  <div><strong>Hora:</strong> {selectedAppt.hour}:00</div>
+                  <div><strong>Tipo de cita:</strong> {TYPE_LABELS[selectedAppt.appointment_type] ?? selectedAppt.appointment_type}</div>
+                  <div><strong>Creada en:</strong> {selectedAppt.created_at ?? '—'}</div>
+
+                  {selectedAppt.appointment_type === 2 && predictionsMap[String(selectedAppt.id)] && (() => {
+                    const p = predictionsMap[String(selectedAppt.id)]
+                    const probAttend = getProbAttendFromPrediction(p)
+                    const safety = classifyAttendanceSafety(p)
+                    const finalLabel = p?.final_label ?? p?.predicted_label ?? p?.model_label
+                    const finalText = finalLabel === 1 ? 'No show' : finalLabel === 0 ? 'Asistirá' : '—'
+
+                    return (
+                      <div style={{ marginTop: 6, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', background: '#f8fafc' }}>
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <div><strong>Predicción de asistencia:</strong> {formatPercent(probAttend)}</div>
+                          <div><strong>Predicción final:</strong> {finalText}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <strong>Seguridad de asistencia:</strong>
+                            <span style={{ padding: '2px 8px', borderRadius: 999, background: safety.color, color: '#fff', fontSize: 12 }}>
+                              {safety.level}
+                            </span>
+                            <span style={{ color: '#475569', fontSize: 12 }}>{safety.reason}</span>
+                          </div>
+
+                          {p?.verification_status && (
+                            <div style={{ color: '#475569', fontSize: 12 }}>
+                              <strong>Estado doble verificación:</strong> {String(p.verification_status)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {detailsTab === 'verification' && (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {(() => {
+                    const pred = predictionsMap[String(selectedAppt.id)]
+                    const verification = pred?.verification
+                    if (!verification || typeof verification !== 'object') {
+                      return <div style={{ color: '#475569' }}>No hay información de doble verificación para esta cita.</div>
+                    }
+
+                    const na = verification?.rules?.non_attendance
+                    const at = verification?.rules?.attendance
+
+                    const renderRules = (title, group) => {
+                      if (!group) return null
+                      const checks = group.checks || {}
+                      const rows = Object.entries(checks)
+                        .map(([id, v]) => ({ id, ...v }))
+                        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+
+                      return (
+                        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                            <strong>{title}</strong>
+                            <div style={{ color: '#475569', fontSize: 12 }}>
+                              Score: {group.score}/{group.max_score} — mínimo: {group.min_score_confirm}
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                            {rows.map((r) => (
+                              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, alignItems: 'start' }}>
+                                <div style={{ color: '#334155', fontSize: 12 }}>
+                                  <strong>{r.id}</strong> (peso {r.weight})
+                                </div>
+                                <div>
+                                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: '#f1f5f9', border: '1px solid #e2e8f0' }}>
+                                      {ruleTriggerLabel(r.triggered)}
+                                    </span>
+                                    <span style={{ fontSize: 12, color: '#111827' }}>{r.name || '—'}</span>
+                                  </div>
+                                  {r.condition && (
+                                    <div style={{ fontSize: 12, color: '#64748b' }}>Condición: {String(r.condition)}</div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <>
+                        <div style={{ color: '#475569', fontSize: 12 }}>
+                          Esta página muestra los criterios que se evaluaron y los puntos acumulados.
+                        </div>
+                        {renderRules('Criterios de inasistencia (no-show)', na)}
+                        {renderRules('Criterios de asistencia (show)', at)}
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
+
               <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 {/* Disable change button unless appointment is 'En espera' AND its date/time is already past */}
                 {(() => {
@@ -525,7 +716,7 @@ function App() {
                   </select>
                 )}
                 <button onClick={() => handleDelete(selectedAppt.id)} style={{ padding: '6px 10px', borderRadius: 6, background: '#dc2626', color: '#fff', border: 'none' }}>Eliminar cita</button>
-                <button onClick={() => setShowDetails(false)} style={{ padding: '6px 10px', borderRadius: 6 }}>Cerrar</button>
+                <button onClick={() => { setShowDetails(false); setShowSelectType(false); setDetailsTab('info') }} style={{ padding: '6px 10px', borderRadius: 6 }}>Cerrar</button>
               </div>
             </div>
           </div>

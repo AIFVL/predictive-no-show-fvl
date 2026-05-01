@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -38,7 +39,8 @@ import lightgbm as lgb
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RAW_DATA_PATH = REPO_ROOT / "data" / "raw" / "database_non-shows.xlsx"
+DEFAULT_RAW_DATA_PATH = REPO_ROOT / "data" / "raw" / "database_non-shows.xlsx"
+RAW_DATA_PATH = Path(os.environ.get("RAW_DATA_PATH", str(DEFAULT_RAW_DATA_PATH)))
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
 MODEL_DIR = Path(__file__).resolve().parent
 MODEL_ARTIFACT_PATH = MODEL_DIR / "model.pkl"
@@ -92,15 +94,165 @@ CATEGORICAL_FEATURE_CANDIDATES = [
 
 
 # ---------------------------------------------------------------------------
+# Double verification (rule-based) configuration
+# ---------------------------------------------------------------------------
+
+# These rules are used as a second pass to validate model predictions.
+# They are serialized into metrics.json so inference can expose explanations.
+DOUBLE_VERIFICATION_CONFIG: Dict[str, Any] = {
+    "version": 1,
+    # Conservative defaults: require a minimum score to confirm model outputs.
+    # You can adjust these values and retrain to update the persisted config.
+    "non_attendance": {
+        "min_score_confirm": 4,
+        "rules": [
+            {
+                "id": "NA1",
+                "name": "Historial de inasistencias alto",
+                "condition": "Number of Previous Non-Attendance >= 2",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "NA2",
+                "name": "Alta tasa de no-show",
+                "condition": "Prev_NoShow_Rate > 0.5",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "NA3",
+                "name": "Baja experiencia con citas",
+                "condition": "Prev_Total <= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA4",
+                "name": "Última cita fue no-show",
+                "condition": "Last_Attendance == No-Show",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "NA5",
+                "name": "Intervalo largo de asignación",
+                "condition": "Creation to Assignment Interval > 7",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA6",
+                "name": "Cita con poca anticipación",
+                "condition": "Creation to Assignment Interval <= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA7",
+                "name": "Paciente joven + bajo compromiso",
+                "condition": "Age < 30 AND Number of Previous Attendance <= 1",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA8",
+                "name": "Baja carga clínica + bajo compromiso",
+                "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+                "weight": 1,
+                "enabled": True,
+            },
+        ],
+    },
+    "attendance": {
+        "min_score_confirm": 4,
+        "rules": [
+            {
+                "id": "A1",
+                "name": "Historial alto de asistencia",
+                "condition": "Number of Previous Attendance >= 3",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "A2",
+                "name": "Baja tasa de no-show",
+                "condition": "Prev_NoShow_Rate <= 0.2",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "A3",
+                "name": "Última cita fue asistida",
+                "condition": "Last_Attendance == Show",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "A4",
+                "name": "Alta experiencia con citas",
+                "condition": "Prev_Total >= 4",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A5",
+                "name": "Intervalo moderado",
+                "condition": "3 <= Creation to Assignment Interval <= 7",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A6",
+                "name": "Paciente con mayor carga clínica",
+                "condition": "Number of Diseases >= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A7",
+                "name": "Mayor consumo de medicamentos",
+                "condition": "Number of Medications >= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A8",
+                "name": "(Ambiguo) Baja carga clínica + bajo compromiso",
+                "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+                "weight": 1,
+                "enabled": False,
+                "notes": "En la tabla compartida este criterio aparece también en inasistencia con la misma condición; se deja deshabilitado para evitar contradicciones hasta confirmar la regla correcta.",
+            },
+        ],
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # Data loading and cleaning
 # ---------------------------------------------------------------------------
 
-def load_raw_data(path: Path = RAW_DATA_PATH) -> pd.DataFrame:
-    """Load the raw appointment dataset from Excel."""
+def load_raw_data(path: Path | None = None) -> pd.DataFrame:
+    """Load the raw appointment dataset from Excel.
 
-    if not path.exists():
-        raise FileNotFoundError(f"Raw dataset not found at {path!s}")
-    return pd.read_excel(path)
+    The path can be provided explicitly (CLI), via the RAW_DATA_PATH env var,
+    or will fall back to the default repo location.
+    """
+
+    candidate = Path(path) if path is not None else RAW_DATA_PATH
+
+    if not candidate.exists():
+        raise FileNotFoundError(
+            "Raw dataset not found. Expected an Excel file at: "
+            f"{candidate!s}. "
+            "\n\nSoluciones:\n"
+            "- Copia el Excel a: data/raw/database_non-shows.xlsx\n"
+            "- O ejecuta: python backend/models/train_pipeline.py --raw-data \"C:/ruta/tu_archivo.xlsx\"\n"
+            "- O define env var RAW_DATA_PATH con la ruta del Excel."
+        )
+
+    return pd.read_excel(candidate)
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -302,13 +454,13 @@ def tune_threshold_f1_macro(y_true: pd.Series, proba: pd.Series) -> float:
 # Training orchestration
 # ---------------------------------------------------------------------------
 
-def train_and_serialize(model: Any | None = None) -> Dict[str, object]:
+def train_and_serialize(model: Any | None = None, *, raw_data_path: Path | None = None) -> Dict[str, object]:
     """Train the pipeline and persist artifacts.
 
     Returns a dictionary with evaluation metrics.
     """
 
-    df_raw = load_raw_data()
+    df_raw = load_raw_data(raw_data_path)
     print(f"Loaded raw dataset with shape {df_raw.shape}.")
 
     df_norm = normalize_columns(df_raw)
@@ -375,6 +527,7 @@ def train_and_serialize(model: Any | None = None) -> Dict[str, object]:
         "roc_auc": roc_auc,
         "threshold": float(best_threshold),
         "feature_columns": feature_columns,
+        "double_verification": DOUBLE_VERIFICATION_CONFIG,
         "target_distribution": y.value_counts(normalize=True).to_dict(),
         "classification_report": report,
         "model_params": {
@@ -391,7 +544,19 @@ def train_and_serialize(model: Any | None = None) -> Dict[str, object]:
 
 
 def main() -> None:
-    metrics = train_and_serialize()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train and serialize the no-show pipeline.")
+    parser.add_argument(
+        "--raw-data",
+        dest="raw_data",
+        default=None,
+        help="Path to the raw Excel dataset (overrides default data/raw/database_non-shows.xlsx)",
+    )
+    args = parser.parse_args()
+
+    raw_path = Path(args.raw_data) if args.raw_data else None
+    metrics = train_and_serialize(raw_data_path=raw_path)
     print("Training finished. Accuracy:", metrics["accuracy"])
 
 

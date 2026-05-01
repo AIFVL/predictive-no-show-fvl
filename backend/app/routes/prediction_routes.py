@@ -51,7 +51,8 @@ def predictions_for_waiting(medic_id: str | None = None):
 
         results = []
         probs_no_show = []
-        preds_no_show = 0
+        preds_no_show_model = 0
+        preds_no_show_final = 0
 
         feature_columns = METRICS.get("feature_columns", [])
 
@@ -138,17 +139,41 @@ def predictions_for_waiting(medic_id: str | None = None):
                 prob_attend = 1.0 - prob_no_show
                 probs_no_show.append(prob_no_show)
 
-            label = pred.get('label')
+            model_label = pred.get("label")
+            final_label = pred.get("final_label")
+            if final_label is None:
+                final_label = model_label
+
             # label == 1 indicates predicted no-show
-            if label == 1:
-                preds_no_show += 1
+            if model_label == 1:
+                preds_no_show_model += 1
+            if final_label == 1:
+                preds_no_show_final += 1
+
+            verification = pred.get("verification")
+            verification_status = None
+            non_attendance_score = None
+            attendance_score = None
+            if isinstance(verification, dict):
+                verification_status = (
+                    verification.get("decision", {}) or {}
+                ).get("status")
+                rules = verification.get("rules", {}) or {}
+                non_attendance_score = (rules.get("non_attendance", {}) or {}).get("score")
+                attendance_score = (rules.get("attendance", {}) or {}).get("score")
 
             results.append({
                 "appointment_id": int(a.id),
                 "patient_id": pid,
-                "predicted_label": int(label) if label is not None else None,
+                "model_label": int(model_label) if model_label is not None else None,
+                "final_label": int(final_label) if final_label is not None else None,
+                "predicted_label": int(final_label) if final_label is not None else None,
                 "prob_attend": prob_attend,
                 "prob_no_show": prob_no_show,
+                "verification_status": verification_status,
+                "non_attendance_score": non_attendance_score,
+                "attendance_score": attendance_score,
+                "verification": verification,
             })
 
         total = len(waiting)
@@ -157,8 +182,10 @@ def predictions_for_waiting(medic_id: str | None = None):
         # mean probability of attending is complementary
         mean_prob_attend = float(sum((1.0 - p) for p in probs_no_show) / len(probs_no_show)) if probs_no_show else None
 
-        percent_predicted_no_show = (preds_no_show / analyzed * 100.0) if analyzed else None
-        preds_attend = (analyzed - preds_no_show) if analyzed else 0
+        percent_model_predicted_no_show = (preds_no_show_model / analyzed * 100.0) if analyzed else None
+        percent_predicted_no_show = (preds_no_show_final / analyzed * 100.0) if analyzed else None
+
+        preds_attend = (analyzed - preds_no_show_final) if analyzed else 0
         percent_predicted_attend = (preds_attend / analyzed * 100.0) if analyzed else None
 
         return {
@@ -166,6 +193,7 @@ def predictions_for_waiting(medic_id: str | None = None):
             "analyzed": analyzed,
             "mean_prob_no_show": mean_prob_no_show,
             "mean_prob_attend": mean_prob_attend,
+            "percent_model_predicted_no_show": percent_model_predicted_no_show,
             "percent_predicted_no_show": percent_predicted_no_show,
             "percent_predicted_attend": percent_predicted_attend,
             "per_appointment": results,

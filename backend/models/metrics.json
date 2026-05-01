@@ -17,6 +17,132 @@
     "Day",
     "Month"
   ],
+  "double_verification": {
+    "version": 1,
+    "non_attendance": {
+      "min_score_confirm": 4,
+      "rules": [
+        {
+          "id": "NA1",
+          "name": "Historial de inasistencias alto",
+          "condition": "Number of Previous Non-Attendance >= 2",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "NA2",
+          "name": "Alta tasa de no-show",
+          "condition": "Prev_NoShow_Rate > 0.5",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "NA3",
+          "name": "Baja experiencia con citas",
+          "condition": "Prev_Total <= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA4",
+          "name": "\u00daltima cita fue no-show",
+          "condition": "Last_Attendance == No-Show",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "NA5",
+          "name": "Intervalo largo de asignaci\u00f3n",
+          "condition": "Creation to Assignment Interval > 7",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA6",
+          "name": "Cita con poca anticipaci\u00f3n",
+          "condition": "Creation to Assignment Interval <= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA7",
+          "name": "Paciente joven + bajo compromiso",
+          "condition": "Age < 30 AND Number of Previous Attendance <= 1",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA8",
+          "name": "Baja carga cl\u00ednica + bajo compromiso",
+          "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+          "weight": 1,
+          "enabled": true
+        }
+      ]
+    },
+    "attendance": {
+      "min_score_confirm": 4,
+      "rules": [
+        {
+          "id": "A1",
+          "name": "Historial alto de asistencia",
+          "condition": "Number of Previous Attendance >= 3",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "A2",
+          "name": "Baja tasa de no-show",
+          "condition": "Prev_NoShow_Rate <= 0.2",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "A3",
+          "name": "\u00daltima cita fue asistida",
+          "condition": "Last_Attendance == Show",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "A4",
+          "name": "Alta experiencia con citas",
+          "condition": "Prev_Total >= 4",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A5",
+          "name": "Intervalo moderado",
+          "condition": "3 <= Creation to Assignment Interval <= 7",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A6",
+          "name": "Paciente con mayor carga cl\u00ednica",
+          "condition": "Number of Diseases >= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A7",
+          "name": "Mayor consumo de medicamentos",
+          "condition": "Number of Medications >= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A8",
+          "name": "(Ambiguo) Baja carga cl\u00ednica + bajo compromiso",
+          "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+          "weight": 1,
+          "enabled": false,
+          "notes": "En la tabla compartida este criterio aparece tambi\u00e9n en inasistencia con la misma condici\u00f3n; se deja deshabilitado para evitar contradicciones hasta confirmar la regla correcta."
+        }
+      ]
+    }
+  },
   "target_distribution": {
     "0": 0.6587275693311583,
     "1": 0.3412724306688418
