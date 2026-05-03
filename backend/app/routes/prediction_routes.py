@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from ..schemas import PatientInput, PredictionResponse
-from ..services.prediction import predict_from_dict, info as model_info, METRICS
+from ..services import prediction as prediction_service
 from ..services import db_service
 from ..db import SessionLocal
 from pathlib import Path
@@ -12,13 +12,15 @@ prediction_routes = APIRouter(tags=["prediction"])
 
 @prediction_routes.get("/model-info")
 def get_model_info():
-    return model_info()
+    # Load artifacts so returned metrics reflect the current model.
+    prediction_service._ensure_loaded()
+    return prediction_service.info()
 
 
 @prediction_routes.post("/predict", response_model=PredictionResponse)
 def predict(payload: PatientInput):
     try:
-        res = predict_from_dict(payload.features)
+        res = prediction_service.predict_from_dict(payload.features)
         return PredictionResponse(**res)
     except FileNotFoundError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -35,6 +37,8 @@ def predictions_for_waiting(medic_id: str | None = None):
     """
     db = SessionLocal()
     try:
+        # Ensure model + metrics are loaded before using feature_columns.
+        prediction_service._ensure_loaded()
         appts = db_service.list_appointments(db)
         # filter waiting
         waiting = [a for a in appts if int(a.appointment_type) == 2]
@@ -54,7 +58,7 @@ def predictions_for_waiting(medic_id: str | None = None):
         preds_no_show_model = 0
         preds_no_show_final = 0
 
-        feature_columns = METRICS.get("feature_columns", [])
+        feature_columns = prediction_service.METRICS.get("feature_columns", [])
 
         def _norm_col(name: str) -> str:
             return (
@@ -124,7 +128,7 @@ def predictions_for_waiting(medic_id: str | None = None):
             features = {c: (matched_row[c] if c in matched_row.index else None) for c in feature_columns}
 
             try:
-                pred = predict_from_dict(features)
+                pred = prediction_service.predict_from_dict(features)
             except Exception as e:
                 results.append({"appointment_id": int(a.id), "patient_id": pid, "error": f"prediction failed: {e}"})
                 continue

@@ -64,7 +64,36 @@ def _last_attendance_label(features: Dict[str, Any]) -> Optional[str]:
             raw = features.get(key)
             break
     else:
+        raw = None
+
+    # Fallback: some datasets store last attendance as a numeric appointment type.
+    # Convention (as used in this project):
+    # - 0 => no-show
+    # - 1 => show
+    if raw is None:
+        for key in (
+            "Appointment Type",
+            "Appointment_Type",
+            "AppointmentType",
+            "appointment_type",
+            # tolerate common typos
+            "Opointment Type",
+            "Opointment_Type",
+            "OpointmentType",
+        ):
+            if key in features:
+                raw = features.get(key)
+                break
+
+    if raw is None:
         return None
+
+    n = _to_float(raw)
+    if n is not None:
+        if int(n) == 0:
+            return "no-show"
+        if int(n) == 1:
+            return "show"
 
     s = _norm_str(raw)
     if not s:

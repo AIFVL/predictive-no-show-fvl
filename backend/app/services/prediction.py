@@ -49,7 +49,10 @@ def _ensure_loaded() -> Any:
         return _MODEL
     artifacts = _load_artifacts()
     _MODEL = artifacts["model"]
-    METRICS = artifacts.get("metrics", {}) or {}
+    # IMPORTANT: update in-place so any modules that imported `METRICS`
+    # (e.g., route modules) see the loaded values.
+    METRICS.clear()
+    METRICS.update(artifacts.get("metrics", {}) or {})
     return _MODEL
 
 
