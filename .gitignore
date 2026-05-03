@@ -35,3 +35,7 @@ Thumbs.db
 desktop.ini
 
 src/__pycache__/
+env/
+data/
+*.joblib
+*__pycache__/

@@ -9,3 +9,5 @@ openpyxl
 imbalanced-learn
 xgboost
 lightgbm
+catboost
+PyYAML
