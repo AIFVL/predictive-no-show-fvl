@@ -1,3 +1,40 @@
+# DBs and model artifacts
+backend/*.db
+backend/appointments.db
+backend/models/*.pkl
+backend/models/*.joblib
+backend/models/metrics.json
+backend/models/model_info.json
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.xlsx
+*.csv
+
+
+
+# caches, virtualenvs, build artifacts
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.cache/
+pip-wheel-metadata/
+*.egg-info
+build/
+dist/
+
+# notebooks
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+src/__pycache__/
 env/
 data/
 *.joblib
