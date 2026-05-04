@@ -1,727 +1,1088 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-// CSS loaded from CDN in index.html
+import esLocale from '@fullcalendar/core/locales/es'
+import logoFvl from '../logoFVL.png'
+
+const API_BASE_URL = 'http://localhost:8000'
+const CALENDAR_YEAR = 2026
 
 const TYPE_LABELS = {
   0: 'Asistida',
-  1: 'No show',
-  2: 'En espera'
+  1: 'No asistió',
+  2: 'En espera',
 }
 
-// Color helpers for probability-based event styling
-const clamp01 = (x) => Math.max(0, Math.min(1, x))
-
-const hexToRgb = (hex) => {
-  const h = String(hex || '').replace('#', '')
-  const full = h.length === 3 ? h.split('').map(ch => ch + ch).join('') : h
-  const n = parseInt(full, 16)
-  if (!Number.isFinite(n)) return null
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+const TYPE_COLORS = {
+  0: '#0f766e',
+  1: '#b42318',
+  2: '#2563eb',
 }
 
-const rgbToHex = ({ r, g, b }) => {
-  const to2 = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')
-  return `#${to2(r)}${to2(g)}${to2(b)}`
+const MONTH_LABELS = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
+
+const RISK_COPY = {
+  high: { label: 'Riesgo alto', tone: 'critical' },
+  medium: { label: 'Seguimiento', tone: 'warning' },
+  low: { label: 'Asistencia probable', tone: 'positive' },
+  none: { label: 'Sin analítica', tone: 'neutral' },
 }
 
-const lerp = (a, b, t) => a + (b - a) * t
-
-const lerpHex = (aHex, bHex, t) => {
-  const a = hexToRgb(aHex)
-  const b = hexToRgb(bHex)
-  if (!a || !b) return bHex
-  return rgbToHex({
-    r: lerp(a.r, b.r, t),
-    g: lerp(a.g, b.g, t),
-    b: lerp(a.b, b.b, t),
-  })
+const MANUAL_VERIFICATION_RULES = {
+  non_attendance: {
+    title: 'Checklist manual de inasistencia',
+    minScore: 4,
+    items: [
+      {
+        id: 'NA1',
+        label: 'Historial de inasistencias alto',
+        condition: 'Previous Non-Attendance >= 2',
+        rationale: 'Fuerte predictor de comportamiento futuro',
+        weight: 2,
+      },
+      {
+        id: 'NA2',
+        label: 'Alta tasa de no-show',
+        condition: 'Prev_NoShow_Rate > 0.5',
+        rationale: 'Indica tendencia dominante a faltar',
+        weight: 2,
+      },
+      {
+        id: 'NA3',
+        label: 'Baja experiencia con citas',
+        condition: 'Prev_Total <= 2',
+        rationale: 'Paciente sin hábito en el sistema',
+        weight: 1,
+      },
+      {
+        id: 'NA4',
+        label: 'Última cita fue no-show',
+        condition: 'Last_Attendance = No-Show',
+        rationale: 'Predictor reciente muy fuerte',
+        weight: 2,
+      },
+      {
+        id: 'NA5',
+        label: 'Intervalo largo de asignación',
+        condition: 'Creation-Assignment > 7 días',
+        rationale: 'Mayor probabilidad de olvido',
+        weight: 1,
+      },
+      {
+        id: 'NA6',
+        label: 'Cita con poca anticipación',
+        condition: 'Creation-Assignment <= 2 días',
+        rationale: 'Conflictos de agenda o falta de preparación',
+        weight: 1,
+      },
+      {
+        id: 'NA7',
+        label: 'Paciente joven + bajo compromiso',
+        condition: 'Age < 30 AND Prev_Attendance <= 1',
+        rationale: 'Menor adherencia al control médico',
+        weight: 1,
+      },
+      {
+        id: 'NA8',
+        label: 'Baja carga clínica + bajo compromiso',
+        condition: 'Diseases <= 1 AND Prev_Attendance <= 1',
+        rationale: 'Menor percepción de necesidad médica',
+        weight: 1,
+      },
+    ],
+  },
+  attendance: {
+    title: 'Checklist manual de asistencia',
+    minScore: 4,
+    items: [
+      {
+        id: 'A1',
+        label: 'Historial alto de asistencia',
+        condition: 'Previous Attendance >= 3',
+        rationale: 'Comportamiento consistente positivo',
+        weight: 2,
+      },
+      {
+        id: 'A2',
+        label: 'Baja tasa de no-show',
+        condition: 'Prev_NoShow_Rate <= 0.2',
+        rationale: 'Indica alta adherencia',
+        weight: 2,
+      },
+      {
+        id: 'A3',
+        label: 'Última cita fue asistida',
+        condition: 'Last_Attendance = Show',
+        rationale: 'Fuerte predictor reciente',
+        weight: 2,
+      },
+      {
+        id: 'A4',
+        label: 'Alta experiencia con citas',
+        condition: 'Prev_Total >= 4',
+        rationale: 'Paciente acostumbrado al sistema',
+        weight: 1,
+      },
+      {
+        id: 'A5',
+        label: 'Intervalo moderado',
+        condition: '3 <= Creation-Assignment <= 7 días',
+        rationale: 'Balance entre preparación y olvido',
+        weight: 1,
+      },
+      {
+        id: 'A6',
+        label: 'Paciente con mayor carga clínica',
+        condition: 'Diseases >= 2',
+        rationale: 'Mayor percepción de necesidad médica',
+        weight: 1,
+      },
+      {
+        id: 'A7',
+        label: 'Mayor consumo de medicamentos',
+        condition: 'Medications >= 2',
+        rationale: 'Mayor compromiso terapéutico',
+        weight: 1,
+      },
+      {
+        id: 'A8',
+        label: 'Baja carga clínica + bajo compromiso',
+        condition: 'Diseases <= 1 AND Prev_Attendance <= 1',
+        rationale: 'Mayor adherencia al seguimiento médico',
+        weight: 1,
+      },
+    ],
+  },
 }
 
-// Map probability of attendance to a smooth red->yellow->green palette.
-// 0.0 => red, 0.5 => yellow, 1.0 => green.
-const colorFromProbAttend = (probAttend) => {
-  const p = clamp01(Number(probAttend))
-  const RED = '#dc2626'
-  const YELLOW = '#f59e0b'
-  const GREEN = '#10b981'
-  if (p <= 0.5) return lerpHex(RED, YELLOW, p / 0.5)
-  return lerpHex(YELLOW, GREEN, (p - 0.5) / 0.5)
+const emptyForm = {
+  medic_id: '',
+  patient_id: '',
+  hour: 9,
+  day: 1,
+  month: 1,
+  search: '',
 }
 
-const relativeLuminance = ({ r, g, b }) => {
-  const toLinear = (c) => {
-    const s = c / 255
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
-  }
-  const R = toLinear(r)
-  const G = toLinear(g)
-  const B = toLinear(b)
-  return 0.2126 * R + 0.7152 * G + 0.0722 * B
+const clamp01 = (value) => Math.max(0, Math.min(1, Number(value)))
+
+const formatPercent = (value) => {
+  if (value == null || Number.isNaN(Number(value))) return 'Sin dato'
+  return `${(Number(value) * 100).toFixed(1)}%`
 }
 
-const contrastRatio = (l1, l2) => {
-  const [L1, L2] = l1 >= l2 ? [l1, l2] : [l2, l1]
-  return (L1 + 0.05) / (L2 + 0.05)
+const formatDateLabel = (appointment) => {
+  if (!appointment) return 'Sin fecha'
+  return `${appointment.day} de ${MONTH_LABELS[(appointment.month || 1) - 1]} de ${CALENDAR_YEAR}`
 }
 
-const bestTextColorForBg = (bgHex) => {
-  const rgb = hexToRgb(bgHex)
-  if (!rgb) return '#ffffff'
-  const bgLum = relativeLuminance(rgb)
-  const whiteLum = 1
-  const blackLum = 0
+const formatTimeLabel = (hour) => `${String(hour ?? 0).padStart(2, '0')}:00`
 
-  const cWhite = contrastRatio(whiteLum, bgLum)
-  const cBlack = contrastRatio(bgLum, blackLum)
-  // Use near-black for better look than pure black.
-  return cBlack >= cWhite ? '#111827' : '#ffffff'
-}
-
-const formatPercent = (p) => {
-  if (p == null) return '—'
-  const n = Number(p)
-  if (!Number.isFinite(n)) return '—'
-  return `${(n * 100).toFixed(1)}%`
-}
-
-const getProbAttendFromPrediction = (pred) => {
-  if (!pred) return null
-  if (pred.prob_attend != null) {
-    const v = Number(pred.prob_attend)
-    return Number.isFinite(v) ? v : null
-  }
-  if (pred.prob_no_show != null) {
-    const v = 1 - Number(pred.prob_no_show)
-    return Number.isFinite(v) ? v : null
-  }
-  if (pred.probability != null) {
-    const v = 1 - Number(pred.probability)
-    return Number.isFinite(v) ? v : null
-  }
+const getProbAttendFromPrediction = (prediction) => {
+  if (!prediction) return null
+  if (prediction.prob_attend != null) return clamp01(prediction.prob_attend)
+  if (prediction.prob_no_show != null) return clamp01(1 - Number(prediction.prob_no_show))
+  if (prediction.probability != null) return clamp01(1 - Number(prediction.probability))
   return null
 }
 
-// Classify how safe/likely the patient will attend (asistir).
-// Uses both model probability and double-verification status when present.
-const classifyAttendanceSafety = (pred) => {
-  const probAttend = getProbAttendFromPrediction(pred)
-  const finalLabel = pred?.final_label ?? pred?.predicted_label ?? pred?.model_label
-  const status = pred?.verification_status
+const getRiskLevel = (prediction) => {
+  const finalLabel = prediction?.final_label ?? prediction?.predicted_label ?? prediction?.model_label
+  const verificationStatus = prediction?.verification_status
+  const probAttend = getProbAttendFromPrediction(prediction)
 
-  // Labels/colors already used in UI
-  const COLORS = {
-    danger: '#dc2626',
-    warn: '#f59e0b',
-    ok: '#10b981',
-    neutral: '#64748b',
-  }
-
-  // If final says no-show, then it's not safe to assume attendance.
-  if (finalLabel === 1) {
-    if (status === 'confirmed_no_show') {
-      return { level: 'Nada seguro', color: COLORS.danger, reason: 'No-show confirmado por doble verificación' }
-    }
-    return { level: 'Poco seguro', color: COLORS.warn, reason: 'No-show sin confirmación fuerte' }
-  }
-
-  // Predicted attendance
-  if (status === 'confirmed_show') {
-    return { level: 'Muy seguro', color: COLORS.ok, reason: 'Asistencia confirmada por doble verificación' }
-  }
-  if (status === 'contradictory_high_no_show_signals' || status === 'contradictory_high_attendance_signals') {
-    return { level: 'Poco seguro', color: COLORS.warn, reason: 'Señales contradictorias entre reglas' }
-  }
-
-  if (probAttend == null) {
-    return { level: 'Poco seguro', color: COLORS.neutral, reason: 'Sin probabilidad disponible' }
-  }
-
-  if (probAttend >= 0.80) return { level: 'Seguro', color: COLORS.ok, reason: 'Probabilidad de asistencia alta' }
-  if (probAttend >= 0.65) return { level: 'Poco seguro', color: COLORS.warn, reason: 'Probabilidad de asistencia moderada' }
-  return { level: 'Poco seguro', color: COLORS.warn, reason: 'Probabilidad de asistencia baja' }
+  if (!prediction) return 'none'
+  if (finalLabel === 1 || verificationStatus === 'confirmed_no_show') return 'high'
+  if (verificationStatus?.includes('contradictory')) return 'medium'
+  if (probAttend == null) return 'none'
+  if (probAttend < 0.65) return 'high'
+  if (probAttend < 0.82) return 'medium'
+  return 'low'
 }
 
-const ruleTriggerLabel = (triggered) => {
-  if (triggered === true) return 'Cumple'
-  if (triggered === false) return 'No cumple'
-  return 'Sin datos'
+const getRiskSummary = (prediction) => {
+  const level = getRiskLevel(prediction)
+  const base = RISK_COPY[level]
+
+  if (level === 'high') {
+    return {
+      ...base,
+      message: prediction?.verification_status === 'confirmed_no_show'
+        ? 'La doble verificación confirma alta probabilidad de inasistencia.'
+        : 'Conviene confirmar la cita y priorizar seguimiento telefónico.',
+    }
+  }
+
+  if (level === 'medium') {
+    return {
+      ...base,
+      message: 'Hay señales mixtas; revisar antecedentes antes de la consulta.',
+    }
+  }
+
+  if (level === 'low') {
+    return {
+      ...base,
+      message: 'La combinación histórica sugiere asistencia esperada.',
+    }
+  }
+
+  return {
+    ...base,
+    message: 'Aún no hay información analítica suficiente para clasificarla.',
+  }
+}
+
+const getPredictionHeadline = (prediction) => {
+  if (!prediction) {
+    return {
+      short: 'Sin predicción',
+      long: 'Esta cita en espera aún no tiene predicción disponible.',
+    }
+  }
+
+  const probAttend = getProbAttendFromPrediction(prediction)
+  const finalLabel = prediction?.final_label ?? prediction?.predicted_label ?? prediction?.model_label
+
+  if (probAttend == null) {
+    return {
+      short: 'Sin probabilidad',
+      long: 'Hay registro de predicción, pero no se recibió una probabilidad interpretable.',
+    }
+  }
+
+  if (finalLabel === 1) {
+    return {
+      short: 'No asistirá',
+      long: 'Predicción final para esta cita programada: no asistirá.',
+    }
+  }
+
+  return {
+    short: 'Asistirá',
+    long: 'Predicción final para esta cita programada: asistirá.',
+  }
+}
+
+const getPredictionSourceLabel = (prediction) => {
+  if (!prediction) return 'Sin fuente de predicción'
+  if (prediction.feature_source === 'matched_dataset_row') return 'Fuente: cruce directo con dataset'
+  if (prediction.feature_source === 'fallback_reference_profile') return 'Fuente: perfil de referencia del dataset'
+  return 'Fuente: predicción disponible'
+}
+
+const getToneClass = (tone) => {
+  if (tone === 'critical') return 'tone-pill tone-pill-critical'
+  if (tone === 'warning') return 'tone-pill tone-pill-warning'
+  if (tone === 'positive') return 'tone-pill tone-pill-positive'
+  return 'tone-pill tone-pill-neutral'
+}
+
+const buildManualStateFromPrediction = (prediction) => {
+  const state = {}
+  const verificationRules = prediction?.verification?.rules || {}
+
+  for (const groupKey of Object.keys(MANUAL_VERIFICATION_RULES)) {
+    state[groupKey] = {}
+    const autoChecks = verificationRules[groupKey]?.checks || {}
+    for (const item of MANUAL_VERIFICATION_RULES[groupKey].items) {
+      const autoTriggered = autoChecks[item.id]?.triggered
+      state[groupKey][item.id] = autoTriggered === true
+    }
+  }
+
+  return state
+}
+
+const scoreManualGroup = (groupKey, groupState) => {
+  const config = MANUAL_VERIFICATION_RULES[groupKey]
+  return config.items.reduce((total, item) => (
+    groupState?.[item.id] ? total + item.weight : total
+  ), 0)
+}
+
+const validateAppointmentForm = (nextForm) => {
+  const errors = {}
+  const medicId = String(nextForm.medic_id ?? '').trim()
+  const patientId = String(nextForm.patient_id ?? '').trim()
+  const hour = Number(nextForm.hour)
+  const day = Number(nextForm.day)
+  const month = Number(nextForm.month)
+
+  if (!medicId) errors.medic_id = 'Ingresa el identificador del médico.'
+  if (!patientId) errors.patient_id = 'Ingresa el identificador del paciente.'
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) errors.hour = 'La hora debe estar entre 0 y 23.'
+  if (!Number.isFinite(day) || day < 1 || day > 31) errors.day = 'El día debe estar entre 1 y 31.'
+  if (!Number.isFinite(month) || month < 1 || month > 12) errors.month = 'El mes debe estar entre 1 y 12.'
+
+  return errors
 }
 
 function App() {
-  // Top-level component state
-  // `appointments` holds the list of appointments fetched from backend
   const [appointments, setAppointments] = useState([])
-  // `predictionsMap` stores prediction results keyed by appointment id
   const [predictionsMap, setPredictionsMap] = useState({})
+  const [detailPrediction, setDetailPrediction] = useState(null)
+  const [manualVerification, setManualVerification] = useState({
+    non_attendance: {},
+    attendance: {},
+  })
+  const [summary, setSummary] = useState(null)
   const [showForm, setShowForm] = useState(false)
-  // `form` stores controlled inputs for the add-appointment form
-  const [form, setForm] = useState({ medic_id: '', patient_id: '', hour: 9, day: 1, month: 1, search: '' })
+  const [showDetails, setShowDetails] = useState(false)
+  const [showSelectType, setShowSelectType] = useState(false)
+  const [selectedAppt, setSelectedAppt] = useState(null)
+  const [detailsTab, setDetailsTab] = useState('info')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [riskFilter, setRiskFilter] = useState('all')
+  const [activeMedicFilter, setActiveMedicFilter] = useState('')
+  const [form, setForm] = useState(emptyForm)
   const [formErrors, setFormErrors] = useState({})
+  const calendarRef = useRef(null)
 
-  const validateAppointmentForm = (nextForm) => {
-    const errors = {}
-    const medicId = String(nextForm.medic_id ?? '').trim()
-    const patientId = String(nextForm.patient_id ?? '').trim()
-    const hour = Number(nextForm.hour)
-    const day = Number(nextForm.day)
-    const month = Number(nextForm.month)
-
-    if (!medicId) errors.medic_id = 'Requerido'
-    if (!patientId) errors.patient_id = 'Requerido'
-    if (!Number.isFinite(hour) || hour < 0 || hour > 23) errors.hour = 'Debe ser 0–23'
-    if (!Number.isFinite(day) || day < 1 || day > 31) errors.day = 'Debe ser 1–31'
-    if (!Number.isFinite(month) || month < 1 || month > 12) errors.month = 'Debe ser 1–12'
-
-    setFormErrors(errors)
-    return Object.keys(errors).length === 0
-  }
-
-  // Query backend for predictions for appointments in 'En espera'
-  // Builds a map { appointment_id: predictionObject } for quick lookup
-  const fetchPredictionsWaiting = useCallback(async (medicId) => {
+  const fetchPredictionsWaiting = async (medicId) => {
     try {
-      const url = medicId ? `http://localhost:8000/predictions/waiting?medic_id=${encodeURIComponent(medicId)}` : `http://localhost:8000/predictions/waiting`
-      const res = await fetch(url)
-      if (!res.ok) {
-        console.warn('Failed to fetch predictions for waiting appointments')
+      const query = medicId ? `?medic_id=${encodeURIComponent(medicId)}` : ''
+      const response = await fetch(`${API_BASE_URL}/predictions/waiting${query}`)
+      if (!response.ok) {
+        console.warn('No fue posible obtener predicciones para citas en espera.')
+        setSummary(null)
         return
       }
-      const data = await res.json()
-      const map = {}
-      // `per_appointment` contains items with appointment_id, prob_attend, prob_no_show, etc.
+
+      const data = await response.json()
+      const nextMap = {}
       for (const item of (data.per_appointment || [])) {
-        if (item && item.appointment_id != null) map[String(item.appointment_id)] = item
+        if (item?.appointment_id != null) {
+          nextMap[String(item.appointment_id)] = item
+        }
       }
-      setPredictionsMap(map)
-    } catch (err) {
-      console.error('Failed to fetch waiting predictions', err)
+
+      setPredictionsMap(nextMap)
+      setSummary(data)
+    } catch (error) {
+      console.error('Error loading waiting predictions', error)
+      setSummary(null)
     }
+  }
+
+  const fetchAppointments = async (medicId = '') => {
+    try {
+      const endpoint = medicId
+        ? `${API_BASE_URL}/appointments/${encodeURIComponent(medicId)}`
+        : `${API_BASE_URL}/appointments`
+      const response = await fetch(endpoint)
+      if (!response.ok) {
+        throw new Error('No fue posible cargar las citas.')
+      }
+
+      const data = await response.json()
+      const normalized = Array.isArray(data) ? data : []
+      setAppointments(normalized)
+      setActiveMedicFilter(medicId)
+      await fetchPredictionsWaiting(medicId)
+    } catch (error) {
+      console.error('Error loading appointments', error)
+      alert(`Error consultando citas: ${error.message}`)
+    }
+  }
+
+  useEffect(() => {
+    fetchAppointments()
   }, [])
 
-  // Fetch all appointments from the backend API and refresh predictions map
-  const fetchAppointments = useCallback(async () => {
-    try {
-      const res = await fetch('http://localhost:8000/appointments')
-      const data = await res.json()
-      const appts = Array.isArray(data) ? data : []
-      setAppointments(appts)
-      // After loading appointments, refresh prediction data for waiting appointments
-      fetchPredictionsWaiting()
-    } catch (err) {
-      console.error('Failed to fetch appointments', err)
-    }
-  }, [fetchPredictionsWaiting])
-
-  useEffect(() => { fetchAppointments() }, [fetchAppointments])
-
-  // Toggle the add-appointment form visibility
-  const toggleForm = () => setShowForm(v => !v)
-
-  // Generic controlled input handler for the add form
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setForm(prev => {
-      const next = { ...prev, [name]: name === 'hour' || name === 'day' || name === 'month' ? Number(value) : value }
-      // Clear field-level error as the user edits
-      if (formErrors[name]) {
-        setFormErrors(curr => {
-          const copy = { ...curr }
-          delete copy[name]
-          return copy
-        })
-      }
-      return next
-    })
-  }
-
-
-
-  // Search appointments by medic id; refreshes the appointments list
   const handleSearch = async () => {
-    const medicId = form.search && String(form.search).trim()
-    if (!medicId) {
-      fetchAppointments()
-      return
-    }
-    try {
-      const res = await fetch(`http://localhost:8000/appointments/${encodeURIComponent(medicId)}`)
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || 'Failed to fetch by medic')
-      }
-      const data = await res.json()
-      setAppointments(Array.isArray(data) ? data : [])
-      // Keep prediction map in sync with the filtered appointment list.
-      fetchPredictionsWaiting(medicId)
-    } catch (err) {
-      console.error('Search failed', err)
-      alert('Error searching appointments: ' + err.message)
+    const medicId = String(form.search ?? '').trim()
+    await fetchAppointments(medicId)
+  }
+
+  const resetSearch = async () => {
+    setForm((current) => ({ ...current, search: '' }))
+    await fetchAppointments('')
+  }
+
+  const handleChange = (event) => {
+    const { name, value } = event.target
+    setForm((current) => ({
+      ...current,
+      [name]: ['hour', 'day', 'month'].includes(name) ? Number(value) : value,
+    }))
+
+    if (formErrors[name]) {
+      setFormErrors((current) => {
+        const copy = { ...current }
+        delete copy[name]
+        return copy
+      })
     }
   }
 
-  // Submit handler for the add-appointment form
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const handleSubmit = async (event) => {
+    event.preventDefault()
     const normalized = {
       ...form,
       medic_id: String(form.medic_id ?? '').trim(),
       patient_id: String(form.patient_id ?? '').trim(),
     }
-    if (!validateAppointmentForm(normalized)) return
+
+    const errors = validateAppointmentForm(normalized)
+    setFormErrors(errors)
+    if (Object.keys(errors).length > 0) return
 
     try {
-      const res = await fetch('http://localhost:8000/appointments/', {
+      const response = await fetch(`${API_BASE_URL}/appointments/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(normalized)
+        body: JSON.stringify(normalized),
       })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || 'Failed to create appointment')
+
+      if (!response.ok) {
+        const message = await response.text()
+        throw new Error(message || 'No fue posible crear la cita.')
       }
-      // refresh and close form
-      await fetchAppointments()
+
+      await fetchAppointments(activeMedicFilter)
       setShowForm(false)
+      setForm((current) => ({ ...emptyForm, search: current.search }))
       setFormErrors({})
-      setForm({ medic_id: '', patient_id: '', hour: 9, day: 1, month: 1 })
-    } catch (err) {
-      console.error('Failed to create appointment', err)
-      alert('Error creating appointment: ' + err.message)
+    } catch (error) {
+      console.error('Error creating appointment', error)
+      alert(`Error creando la cita: ${error.message}`)
     }
   }
 
-  // Build FullCalendar events from appointments state. Memoized for performance.
-  const events = useMemo(() => {
-    const year = 2026
-    return appointments.map(appt => {
-      const start = new Date(year, (appt.month || 1) - 1, appt.day || 1, appt.hour || 0)
-      // color the event according to appointment type
-      // 0: Asistida (green), 1: No show (red), 2: En espera (blue)
-      const colorMap = {
-        0: '#10b981', // Asistida -> green
-        1: '#dc2626', // No show -> red
-        2: '#2563eb'  // En espera -> blue/default
-      }
-      let color = colorMap[appt.appointment_type] || '#2563eb'
-
-      // If appointment is waiting and we have a prediction, color by probability of attendance.
-      if (appt.appointment_type === 2) {
-        const p = predictionsMap[String(appt.id)]
-        const probAttend =
-          p?.prob_attend != null
-            ? Number(p.prob_attend)
-            : p?.prob_no_show != null
-              ? 1 - Number(p.prob_no_show)
-              : p?.probability != null
-                ? 1 - Number(p.probability)
-                : null
-
-        if (probAttend != null && Number.isFinite(probAttend)) {
-          color = colorFromProbAttend(probAttend)
-        }
+  const fetchAppointmentInfo = async (appointmentId) => {
+    try {
+      const [appointmentResponse, predictionResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/appointments/info/${appointmentId}`),
+        fetch(`${API_BASE_URL}/predictions/appointment/${appointmentId}`),
+      ])
+      if (!appointmentResponse.ok) {
+        const message = await appointmentResponse.text()
+        throw new Error(message || 'No fue posible cargar el detalle.')
       }
 
-      const textColor = bestTextColorForBg(color)
+      const data = await appointmentResponse.json()
+      setSelectedAppt(data)
+      if (predictionResponse.ok) {
+        const predictionData = await predictionResponse.json()
+        setDetailPrediction(predictionData)
+        setManualVerification(buildManualStateFromPrediction(predictionData))
+        setPredictionsMap((current) => ({
+          ...current,
+          [String(appointmentId)]: predictionData,
+        }))
+      } else {
+        setDetailPrediction(null)
+        setManualVerification(buildManualStateFromPrediction(null))
+      }
+      setShowSelectType(false)
+      setDetailsTab('info')
+      setShowDetails(true)
+    } catch (error) {
+      console.error('Error loading appointment detail', error)
+      alert(`Error consultando la cita: ${error.message}`)
+    }
+  }
+
+  const handleDelete = async (appointmentId) => {
+    if (!window.confirm('¿Deseas eliminar esta cita del calendario?')) return
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/appointments/${appointmentId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const message = await response.text()
+        throw new Error(message || 'No fue posible eliminar la cita.')
+      }
+
+      await fetchAppointments(activeMedicFilter)
+      setShowDetails(false)
+      setSelectedAppt(null)
+    } catch (error) {
+      console.error('Error deleting appointment', error)
+      alert(`Error eliminando la cita: ${error.message}`)
+    }
+  }
+
+  const handleChangeAppointmentType = async (appointmentId, newType) => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/appointments/type/${appointmentId}?appointment_type=${encodeURIComponent(newType)}`,
+        { method: 'PATCH' },
+      )
+
+      if (!response.ok) {
+        const message = await response.text()
+        throw new Error(message || 'No fue posible actualizar el estado.')
+      }
+
+      const updated = await response.json()
+      setSelectedAppt(updated)
+      await fetchAppointments(activeMedicFilter)
+    } catch (error) {
+      console.error('Error updating appointment type', error)
+      alert(`Error actualizando la cita: ${error.message}`)
+    }
+  }
+
+  const handleDateClick = (info) => {
+    const api = calendarRef.current?.getApi()
+    if (!api) return
+    if (api.view?.type === 'dayGridMonth') {
+      api.changeView('timeGridDay')
+    }
+    api.gotoDate(info.date)
+  }
+
+  const isAppointmentTodayOrPast = (appointment) => {
+    if (!appointment) return false
+    const appointmentDate = new Date(CALENDAR_YEAR, (appointment.month || 1) - 1, appointment.day || 1)
+    const today = new Date()
+    const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    return appointmentDate.getTime() <= currentDate.getTime()
+  }
+
+  const enrichedAppointments = useMemo(() => {
+    return appointments.map((appointment) => {
+      const prediction = predictionsMap[String(appointment.id)] || null
+      const risk = getRiskSummary(prediction)
+      const start = new Date(CALENDAR_YEAR, (appointment.month || 1) - 1, appointment.day || 1, appointment.hour || 0)
 
       return {
-        id: String(appt.id),
-        title: `Paciente ${appt.patient_id}` + (appt.appointment_type !== undefined ? ` — ${TYPE_LABELS[appt.appointment_type] ?? appt.appointment_type}` : ''),
-        start: start.toISOString(),
-        allDay: false,
-        extendedProps: appt,
-        color,
-        textColor,
+        ...appointment,
+        prediction,
+        risk,
+        start,
+        dateLabel: formatDateLabel(appointment),
+        timeLabel: formatTimeLabel(appointment.hour),
       }
     })
   }, [appointments, predictionsMap])
 
-  const [selectedAppt, setSelectedAppt] = useState(null)
-  const [showDetails, setShowDetails] = useState(false)
-  const [showSelectType, setShowSelectType] = useState(false)
-  const [detailsTab, setDetailsTab] = useState('info')
-  const calendarRef = useRef(null)
+  const filteredAppointments = useMemo(() => {
+    return enrichedAppointments.filter((appointment) => {
+      if (statusFilter !== 'all' && String(appointment.appointment_type) !== statusFilter) return false
+      if (riskFilter !== 'all' && getRiskLevel(appointment.prediction) !== riskFilter) return false
+      return true
+    })
+  }, [enrichedAppointments, riskFilter, statusFilter])
 
-  // Load detailed appointment info from backend and open modal
-  const fetchAppointmentInfo = async (appointmentId) => {
-    try {
-      const res = await fetch(`http://localhost:8000/appointments/info/${appointmentId}`)
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || 'Failed to fetch appointment info')
-      }
-      const data = await res.json()
-      setSelectedAppt(data)
-      setDetailsTab('info')
-      setShowDetails(true)
-    } catch (err) {
-      console.error('Failed to fetch appointment info', err)
-      alert('Error fetching appointment info: ' + err.message)
-    }
-  }
+  const events = useMemo(() => {
+    return filteredAppointments.map((appointment) => {
+      const predictionHeadline = getPredictionHeadline(appointment.prediction)
+      const finalLabel = appointment.prediction?.final_label ?? appointment.prediction?.predicted_label ?? appointment.prediction?.model_label
 
-  // Delete an appointment by id and refresh list
-  const handleDelete = async (appointmentId) => {
-    if (!window.confirm('¿Estás seguro de que deseas eliminar esta cita?')) return
-    try {
-      const res = await fetch(`http://localhost:8000/appointments/${appointmentId}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || 'Failed to delete appointment')
+      let baseColor = TYPE_COLORS[appointment.appointment_type] || TYPE_COLORS[2]
+      if (appointment.appointment_type === 2) {
+        if (finalLabel === 1) {
+          baseColor = '#dc2626'
+        } else if (finalLabel === 0) {
+          baseColor = '#2563eb'
+        } else {
+          baseColor = '#94a3b8'
+        }
       }
-      await fetchAppointments()
-      setShowDetails(false)
-    } catch (err) {
-      console.error('Failed to delete appointment', err)
-      alert('Error deleting appointment: ' + err.message)
-    }
-  }
-  
-  // Change only the appointment_type for an appointment (PATCH)
-  // Note: UI blocks this action unless the appointment is currently 'En espera'
-  const handleChangeAppointmentType = async (appointmentId, newType) => {
-    try{
-      // backend expects appointment_type as query parameter
-      const res = await fetch(`http://localhost:8000/appointments/type/${appointmentId}?appointment_type=${encodeURIComponent(newType)}`, {
-        method: 'PATCH'
+
+      return {
+        id: String(appointment.id),
+        title: appointment.appointment_type === 2
+          ? `${appointment.timeLabel} · ${appointment.patient_id} · ${predictionHeadline.short}`
+          : `${appointment.timeLabel} · ${appointment.patient_id}`,
+        start: appointment.start.toISOString(),
+        backgroundColor: baseColor,
+        borderColor: baseColor,
+        textColor: '#ffffff',
+        extendedProps: appointment,
+      }
+    })
+  }, [filteredAppointments])
+
+  const stats = useMemo(() => {
+    const waiting = enrichedAppointments.filter((appointment) => appointment.appointment_type === 2)
+    const highRisk = waiting.filter((appointment) => getRiskLevel(appointment.prediction) === 'high')
+    const followUp = waiting.filter((appointment) => getRiskLevel(appointment.prediction) === 'medium')
+    const resolved = enrichedAppointments.filter((appointment) => appointment.appointment_type !== 2)
+
+    return [
+      {
+        label: 'Citas programadas',
+        value: enrichedAppointments.length,
+        caption: activeMedicFilter ? `Médico ${activeMedicFilter}` : 'Vista general institucional',
+      },
+      {
+        label: 'En espera',
+        value: waiting.length,
+        caption: `${summary?.analyzed ?? 0} con analítica disponible`,
+      },
+      {
+        label: 'Riesgo alto',
+        value: highRisk.length,
+        caption: 'Prioridad para confirmación de asistencia',
+      },
+      {
+        label: 'Citas resueltas',
+        value: resolved.length,
+        caption: `${followUp.length} citas con seguimiento recomendado`,
+      },
+    ]
+  }, [activeMedicFilter, enrichedAppointments, summary])
+
+  const priorityList = useMemo(() => {
+    return [...filteredAppointments]
+      .filter((appointment) => appointment.appointment_type === 2)
+      .sort((left, right) => {
+        const severity = { high: 0, medium: 1, low: 2, none: 3 }
+        const byRisk = severity[getRiskLevel(left.prediction)] - severity[getRiskLevel(right.prediction)]
+        if (byRisk !== 0) return byRisk
+        return left.start.getTime() - right.start.getTime()
       })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || 'Failed to update appointment type')
-      }
-      const updatedAppt = await res.json()
-      setSelectedAppt(updatedAppt)
-      await fetchAppointments()
-    } catch (err) {
-      console.error('Failed to update appointment type', err)
-      alert('Error updating appointment type: ' + err.message)
+      .slice(0, 6)
+  }, [filteredAppointments])
+
+  const selectedPrediction = detailPrediction ?? (selectedAppt ? predictionsMap[String(selectedAppt.id)] : null)
+  const selectedRisk = getRiskSummary(selectedPrediction)
+  const selectedPredictionHeadline = getPredictionHeadline(selectedPrediction)
+  const canChangeState = selectedAppt && selectedAppt.appointment_type === 2 && isAppointmentTodayOrPast(selectedAppt)
+  const isSelectedWaiting = selectedAppt?.appointment_type === 2
+  const manualAttendanceScore = scoreManualGroup('attendance', manualVerification.attendance)
+  const manualNonAttendanceScore = scoreManualGroup('non_attendance', manualVerification.non_attendance)
+
+  const manualVerificationSummary = useMemo(() => {
+    const attendanceMin = MANUAL_VERIFICATION_RULES.attendance.minScore
+    const nonAttendanceMin = MANUAL_VERIFICATION_RULES.non_attendance.minScore
+
+    if (manualAttendanceScore >= attendanceMin && manualNonAttendanceScore < nonAttendanceMin) {
+      return 'La revisión manual favorece asistencia.'
     }
-  }
-
-  // Handle clicks on calendar days: when user clicks a day in month view,
-  // switch to the single-day view and navigate to that date.
-  const handleDateClick = (info) => {
-    try {
-      const api = calendarRef.current?.getApi()
-      if (!api) return
-      const currentView = api.view?.type
-      // If currently in the month-like view, change to day view first
-      if (currentView === 'dayGridMonth' || currentView === 'dayGridYear') {
-        api.changeView('timeGridDay')
-      }
-      // Navigate to the clicked date
-      api.gotoDate(info.date)
-    } catch (err) {
-      console.error('Error handling date click', err)
+    if (manualNonAttendanceScore >= nonAttendanceMin && manualAttendanceScore < attendanceMin) {
+      return 'La revisión manual favorece inasistencia.'
     }
-  }
-
-  // Helper: determine whether an appointment datetime has already passed.
-  // Uses the current year so comparisons match the UI calendar year.
-  const isAppointmentInPast = (appt) => {
-    if (!appt) return false
-    const year = new Date().getFullYear()
-    // fallback values if fields missing
-    const month = (appt.month || 1) - 1
-    const day = appt.day || 1
-    const hour = appt.hour || 0
-    const apptDate = new Date(year, month, day, hour)
-    return apptDate.getTime() < Date.now()
-  }
-
-
+    if (manualAttendanceScore >= attendanceMin && manualNonAttendanceScore >= nonAttendanceMin) {
+      return 'La revisión manual tiene señales contradictorias.'
+    }
+    return 'La revisión manual aún no confirma asistencia ni inasistencia.'
+  }, [manualAttendanceScore, manualNonAttendanceScore])
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-4xl mx-auto">
-        <header className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-extrabold text-slate-800">Calendario de Citas</h1>
-            <p className="text-sm text-slate-500">Ver y crear citas médicas — todas las citas mostradas en 2026</p>
+    <div className="app-shell">
+      <div className="app-backdrop" />
+      <main className="app-layout">
+        <section className="hero-card">
+          <div className="hero-topbar">
+            <div className="brand-lockup">
+              <img className="hero-logo" src={logoFvl} alt="Fundación Valle del Lili" />
+              <div className="brand-copy">
+                <p className="eyebrow">Institución</p>
+                <p className="brand-name">Fundación Valle del Lili</p>
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              placeholder="Buscar por Médico ID"
-              value={form.search || ''}
-              name="search"
-              onChange={(e) => setForm(prev => ({ ...prev, search: e.target.value }))}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSearch() } }}
-              style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #d1d5db' }}
-            />
-            <button onClick={() => handleSearch()} style={{ padding: '8px 12px', background: '#1e40af', color: '#fff', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Buscar</button>
-            <button onClick={() => { setForm(prev => ({ ...prev, search: '' })); fetchAppointments() }} style={{ padding: '8px 12px', background: '#64748b', color: '#fff', borderRadius: 6, border: 'none', cursor: 'pointer' }}>Mostrar todo</button>
+
+          <div className="hero-brand">
+            <div className="hero-title-block">
+              <h1>Prediccion de inasistencia de citas para medicina interna</h1>
+              <p className="hero-copy">
+                Este calendario concentra la programación 2026, identifica citas en espera, prioriza pacientes con mayor riesgo de inasistencia y facilita una gestión más oportuna para el seguimiento de medicina interna.
+              </p>
+            </div>
           </div>
-        </header>
 
-        {showForm && (
-          <form onSubmit={handleSubmit} className="mb-6 bg-white border rounded-lg shadow-sm" style={{ padding: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'end' }}>
+          <div className="hero-actions">
+            <div className="search-box">
+              <label htmlFor="search">Buscar por médico</label>
+              <div className="search-row">
+                <input
+                  id="search"
+                  name="search"
+                  value={form.search || ''}
+                  onChange={handleChange}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      handleSearch()
+                    }
+                  }}
+                  placeholder="Ej. MED-014"
+                />
+                <button className="primary-button" type="button" onClick={handleSearch}>
+                  Filtrar agenda
+                </button>
+              </div>
+              <button className="ghost-button" type="button" onClick={resetSearch}>
+                Restablecer vista institucional
+              </button>
+            </div>
+
+            <div className="legend-card">
+              <p className="legend-title">Cómo leer el calendario</p>
+              <div className="legend-grid">
+                <span><i className="legend-dot legend-dot-blue" /> Asistirá</span>
+                <span><i className="legend-dot legend-dot-red" /> No asistirá</span>
+                <span><i className="legend-dot legend-dot-green" /> Asistida</span>
+                <span><i className="legend-dot legend-dot-gray" /> Sin predicción</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="stats-grid">
+          {stats.map((item) => (
+            <article className="stat-card" key={item.label}>
+              <p>{item.label}</p>
+              <strong>{item.value}</strong>
+              <span>{item.caption}</span>
+            </article>
+          ))}
+        </section>
+
+        <section className="workspace-grid">
+          <div className="calendar-panel">
+            <div className="panel-header">
               <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Médico ID</label>
-                <input name="medic_id" value={form.medic_id} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
-                {formErrors.medic_id && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.medic_id}</div>}
+                <p className="eyebrow">Panel operativo</p>
+                <h2>Calendario asistencial interactivo</h2>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Paciente ID</label>
-                <input name="patient_id" value={form.patient_id} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
-                {formErrors.patient_id && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.patient_id}</div>}
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Hora</label>
-                <input name="hour" type="number" min="0" max="23" value={form.hour} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
-                {formErrors.hour && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.hour}</div>}
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Día</label>
-                <input name="day" type="number" min="1" max="31" value={form.day} onChange={handleChange} required style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #e6edf3' }} />
-                {formErrors.day && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.day}</div>}
-              </div>
-
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6 }}>Mes</label>
-                <input name="month" type="number" min="1" max="12" value={form.month} onChange={handleChange} required style={{ padding: 10, borderRadius: 8, border: '1px solid #e6edf3', width: 140 }} />
-                {formErrors.month && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{formErrors.month}</div>}
+              <div className="filter-row">
+                <select className="compact-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <option value="all">Todos los estados</option>
+                  <option value="2">En espera</option>
+                  <option value="0">Asistidas</option>
+                  <option value="1">No asistieron</option>
+                </select>
+                <select className="compact-filter" value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)}>
+                  <option value="all">Todos los riesgos</option>
+                  <option value="high">Riesgo alto</option>
+                  <option value="medium">Seguimiento</option>
+                  <option value="low">Asistencia probable</option>
+                  <option value="none">Sin analítica</option>
+                </select>
+                <button className="primary-button" type="button" onClick={() => setShowForm((value) => !value)}>
+                  {showForm ? 'Cerrar formulario' : 'Registrar cita'}
+                </button>
               </div>
             </div>
 
-            <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="submit" style={{ padding: '8px 14px', background: '#059669', color: '#fff', borderRadius: 8, border: 'none', cursor: 'pointer' }}>Crear cita</button>
-              <button type="button" onClick={() => setShowForm(false)} style={{ padding: '8px 14px', background: '#f3f4f6', color: '#111827', borderRadius: 8, border: '1px solid #e5e7eb' }}>Cancelar</button>
-            </div>
-          </form>
-        )}
+            {showForm && (
+              <form className="appointment-form" onSubmit={handleSubmit}>
+                <div className="form-grid">
+                  <label>
+                    <span>Médico ID</span>
+                    <input name="medic_id" value={form.medic_id} onChange={handleChange} />
+                    {formErrors.medic_id && <small>{formErrors.medic_id}</small>}
+                  </label>
+                  <label>
+                    <span>Paciente ID</span>
+                    <input name="patient_id" value={form.patient_id} onChange={handleChange} />
+                    {formErrors.patient_id && <small>{formErrors.patient_id}</small>}
+                  </label>
+                  <label>
+                    <span>Hora</span>
+                    <input name="hour" type="number" min="0" max="23" value={form.hour} onChange={handleChange} />
+                    {formErrors.hour && <small>{formErrors.hour}</small>}
+                  </label>
+                  <label>
+                    <span>Día</span>
+                    <input name="day" type="number" min="1" max="31" value={form.day} onChange={handleChange} />
+                    {formErrors.day && <small>{formErrors.day}</small>}
+                  </label>
+                  <label>
+                    <span>Mes</span>
+                    <input name="month" type="number" min="1" max="12" value={form.month} onChange={handleChange} />
+                    {formErrors.month && <small>{formErrors.month}</small>}
+                  </label>
+                </div>
+                <div className="form-actions">
+                  <button className="primary-button" type="submit">Guardar cita</button>
+                  <button className="ghost-button" type="button" onClick={() => setShowForm(false)}>Cancelar</button>
+                </div>
+              </form>
+            )}
 
-        <div className="bg-white rounded-lg shadow p-4">
-          <FullCalendar
-            ref={calendarRef}
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-            initialView="dayGridMonth"
-            headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
-            events={events}
-            eventClick={(info) => {
-              const apptId = info.event.id || info.event.extendedProps?.id
-              if (apptId) fetchAppointmentInfo(apptId)
-            }}
-            dateClick={handleDateClick}
-            height="auto"
-          />
-          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-start' }}>
-            <button
-              onClick={toggleForm}
-              style={{
-                background: '#059669',
-                color: '#fff',
-                padding: '8px 14px',
-                borderRadius: 8,
-                boxShadow: '0 4px 8px rgba(0,0,0,0.12)',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {showForm ? 'Cerrar' : 'Añadir cita'}
-            </button>
+            <div className="calendar-card">
+              <FullCalendar
+                ref={calendarRef}
+                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                initialView="dayGridMonth"
+                locale={esLocale}
+                headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
+                events={events}
+                height="auto"
+                dateClick={handleDateClick}
+                eventClick={(info) => fetchAppointmentInfo(info.event.id)}
+                eventTimeFormat={{ hour: '2-digit', minute: '2-digit', meridiem: false }}
+                dayMaxEvents={3}
+                buttonText={{ today: 'Hoy', month: 'Mes', week: 'Semana', day: 'Día' }}
+              />
+            </div>
           </div>
-        </div>
+
+          <aside className="insights-panel">
+            <div className="insight-card">
+              <p className="eyebrow">Lectura del calendario</p>
+              <h3>¿Qué gestiona este tablero?</h3>
+              <p>
+                Las citas se registran inicialmente como <strong>En espera</strong>. A partir del historial clínico
+                y del modelo predictivo, el panel clasifica si una cita programada <strong>asistirá</strong> o
+                <strong> no asistirá</strong> para orientar llamadas, recordatorios y cierre posterior en asistida o
+                no asistió. Si una cita no encuentra datos del paciente en el dataset procesado, se mostrará como
+                <strong> Sin predicción</strong>.
+              </p>
+            </div>
+
+            <div className="insight-card">
+              <div className="section-head">
+                <h3>Prioridades del día</h3>
+                <span>{priorityList.length} casos</span>
+              </div>
+              <div className="priority-list">
+                {priorityList.length === 0 && <p className="empty-state">No hay citas en espera con el filtro actual.</p>}
+                {priorityList.map((appointment) => (
+                  <button
+                    className="priority-item"
+                    key={appointment.id}
+                    type="button"
+                    onClick={() => fetchAppointmentInfo(appointment.id)}
+                  >
+                    <div>
+                      <strong>{appointment.patient_id}</strong>
+                      <span>{appointment.dateLabel} · {appointment.timeLabel}</span>
+                      <span>{getPredictionHeadline(appointment.prediction).long}</span>
+                      <span>{getPredictionSourceLabel(appointment.prediction)}</span>
+                    </div>
+                    <span className={getToneClass(appointment.risk.tone)}>{appointment.risk.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="insight-card">
+              <div className="section-head">
+                <h3>Resumen predictivo</h3>
+                <span>Modelo activo</span>
+              </div>
+              <div className="model-summary">
+                <strong>{summary?.analyzed ?? 0} citas analizadas</strong>
+                <p>Las predicciones se aplican sobre citas programadas que siguen en estado En espera.</p>
+                <p>Si una cita ya figura como Asistida o No asistió, el sistema la toma como resultado real y no como predicción.</p>
+                <p>Si no hay cruce con el dataset clínico procesado, se mostrará Sin predicción.</p>
+              </div>
+            </div>
+          </aside>
+        </section>
+
         {showDetails && selectedAppt && (
           <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
-            onClick={() => { setShowDetails(false); setShowSelectType(false); setDetailsTab('info') }}
+            className="modal-overlay"
+            onClick={() => {
+              setShowDetails(false)
+              setShowSelectType(false)
+              setDetailsTab('info')
+              setDetailPrediction(null)
+            }}
           >
-            <div style={{ background: '#fff', padding: 20, borderRadius: 8, minWidth: 320, maxWidth: '90%' }} onClick={(e) => e.stopPropagation()}>
-              <h2 style={{ marginTop: 0, marginBottom: 10 }}>Detalle de la cita #{selectedAppt.id}</h2>
+            <section className="modal-card" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-top">
+                <div>
+                  <p className="eyebrow">Detalle de cita</p>
+                  <h2>Paciente {selectedAppt.patient_id}</h2>
+                  <p>{formatDateLabel(selectedAppt)} · {formatTimeLabel(selectedAppt.hour)}</p>
+                </div>
+                <span className={getToneClass(isSelectedWaiting ? selectedRisk.tone : 'neutral')}>
+                  {isSelectedWaiting ? selectedRisk.label : TYPE_LABELS[selectedAppt.appointment_type] ?? 'Sin estado'}
+                </span>
+              </div>
 
-              {(() => {
-                const pred = predictionsMap[String(selectedAppt.id)]
-                const hasVerification = !!pred?.verification
-                return (
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => setDetailsTab('info')}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: 6,
-                        border: '1px solid #e5e7eb',
-                        background: detailsTab === 'info' ? '#2563eb' : '#f3f4f6',
-                        color: detailsTab === 'info' ? '#fff' : '#111827',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Info
-                    </button>
-                    <button
-                      onClick={() => hasVerification && setDetailsTab('verification')}
-                      disabled={!hasVerification}
-                      title={!hasVerification ? 'No hay doble verificación disponible para esta cita' : ''}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: 6,
-                        border: '1px solid #e5e7eb',
-                        background: detailsTab === 'verification' ? '#2563eb' : '#f3f4f6',
-                        color: detailsTab === 'verification' ? '#fff' : '#111827',
-                        cursor: hasVerification ? 'pointer' : 'not-allowed',
-                        opacity: hasVerification ? 1 : 0.6,
-                      }}
-                    >
-                      Doble verificación
-                    </button>
-                  </div>
-                )
-              })()}
+              <div className="tab-row">
+                <button type="button" className={detailsTab === 'info' ? 'tab-button active' : 'tab-button'} onClick={() => setDetailsTab('info')}>
+                  Información
+                </button>
+                <button
+                  type="button"
+                  className={detailsTab === 'verification' ? 'tab-button active' : 'tab-button'}
+                  onClick={() => setDetailsTab('verification')}
+                >
+                  Doble verificación
+                </button>
+              </div>
 
               {detailsTab === 'info' && (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  <div><strong>Médico ID:</strong> {selectedAppt.medic_id ?? '—'}</div>
-                  <div><strong>Paciente ID:</strong> {selectedAppt.patient_id}</div>
-                  <div><strong>Fecha (día/mes/año):</strong> {`${selectedAppt.day}/${selectedAppt.month}/2026`}</div>
-                  <div><strong>Hora:</strong> {selectedAppt.hour}:00</div>
-                  <div><strong>Tipo de cita:</strong> {TYPE_LABELS[selectedAppt.appointment_type] ?? selectedAppt.appointment_type}</div>
-                  <div><strong>Creada en:</strong> {selectedAppt.created_at ?? '—'}</div>
-
-                  {selectedAppt.appointment_type === 2 && predictionsMap[String(selectedAppt.id)] && (() => {
-                    const p = predictionsMap[String(selectedAppt.id)]
-                    const probAttend = getProbAttendFromPrediction(p)
-                    const safety = classifyAttendanceSafety(p)
-                    const finalLabel = p?.final_label ?? p?.predicted_label ?? p?.model_label
-                    const finalText = finalLabel === 1 ? 'No show' : finalLabel === 0 ? 'Asistirá' : '—'
-
-                    return (
-                      <div style={{ marginTop: 6, padding: 10, borderRadius: 8, border: '1px solid #e5e7eb', background: '#f8fafc' }}>
-                        <div style={{ display: 'grid', gap: 6 }}>
-                          <div><strong>Predicción de asistencia:</strong> {formatPercent(probAttend)}</div>
-                          <div><strong>Predicción final:</strong> {finalText}</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <strong>Seguridad de asistencia:</strong>
-                            <span style={{ padding: '2px 8px', borderRadius: 999, background: safety.color, color: '#fff', fontSize: 12 }}>
-                              {safety.level}
-                            </span>
-                            <span style={{ color: '#475569', fontSize: 12 }}>{safety.reason}</span>
-                          </div>
-
-                          {p?.verification_status && (
-                            <div style={{ color: '#475569', fontSize: 12 }}>
-                              <strong>Estado doble verificación:</strong> {String(p.verification_status)}
-                            </div>
-                          )}
-                        </div>
+                <div className="details-grid">
+                  <div className="detail-box">
+                    <span>Médico</span>
+                    <strong>{selectedAppt.medic_id}</strong>
+                  </div>
+                  <div className="detail-box">
+                    <span>Estado</span>
+                    <strong>{TYPE_LABELS[selectedAppt.appointment_type] ?? 'Sin estado'}</strong>
+                  </div>
+                  <div className="detail-box">
+                    <span>Creada</span>
+                    <strong>{selectedAppt.created_at ? new Date(selectedAppt.created_at).toLocaleString('es-CO') : 'Sin fecha'}</strong>
+                  </div>
+                  {isSelectedWaiting ? (
+                    <>
+                      <div className="detail-box">
+                        <span>Predicción de la cita</span>
+                        <strong>{selectedPredictionHeadline.short}</strong>
                       </div>
-                    )
-                  })()}
+                      <div className="detail-box">
+                        <span>Origen de la predicción</span>
+                        <strong>{getPredictionSourceLabel(selectedPrediction)}</strong>
+                      </div>
+                      <div className="detail-box detail-box-wide">
+                        <span>Recomendación operativa</span>
+                        <strong>{selectedRisk.message}</strong>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="detail-box detail-box-wide">
+                      <span>Resultado de la cita</span>
+                      <strong>
+                        {selectedAppt.appointment_type === 0
+                          ? 'La cita ya fue registrada como asistida; no requiere predicción.'
+                          : selectedAppt.appointment_type === 1
+                            ? 'La cita ya fue registrada como no asistió; no requiere predicción.'
+                            : 'La cita no tiene resultado final registrado.'}
+                      </strong>
+                    </div>
+                  )}
                 </div>
               )}
 
               {detailsTab === 'verification' && (
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {(() => {
-                    const pred = predictionsMap[String(selectedAppt.id)]
-                    const verification = pred?.verification
-                    if (!verification || typeof verification !== 'object') {
-                      return <div style={{ color: '#475569' }}>No hay información de doble verificación para esta cita.</div>
-                    }
+                <div className="verification-grid">
+                  <div className="verification-card verification-card-highlight">
+                    <div className="section-head">
+                      <h3>Resumen manual</h3>
+                      <span>{manualVerificationSummary}</span>
+                    </div>
+                    <p className="verification-copy">
+                      Usa estos checks manuales para validar la cita antes de marcarla como asistida o no asistió.
+                    </p>
+                    <div className="manual-summary-grid">
+                      <div className="manual-summary-box">
+                        <strong>Asistencia</strong>
+                        <span>{manualAttendanceScore}/{MANUAL_VERIFICATION_RULES.attendance.minScore} para confirmar</span>
+                      </div>
+                      <div className="manual-summary-box">
+                        <strong>Inasistencia</strong>
+                        <span>{manualNonAttendanceScore}/{MANUAL_VERIFICATION_RULES.non_attendance.minScore} para confirmar</span>
+                      </div>
+                    </div>
+                  </div>
 
-                    const na = verification?.rules?.non_attendance
-                    const at = verification?.rules?.attendance
+                  {selectedPrediction?.verification && (
+                    <div className="verification-card">
+                      <div className="section-head">
+                        <h3>Validación automática del modelo</h3>
+                        <span>{selectedPrediction?.verification_status || 'Sin estado'}</span>
+                      </div>
+                      <p className="verification-copy">
+                        Esta capa automática evalúa reglas sobre la información analítica disponible para respaldar o contradecir la predicción del modelo.
+                      </p>
+                    </div>
+                  )}
 
-                    const renderRules = (title, group) => {
-                      if (!group) return null
-                      const checks = group.checks || {}
-                      const rows = Object.entries(checks)
-                        .map(([id, v]) => ({ id, ...v }))
-                        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
-
-                      return (
-                        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                            <strong>{title}</strong>
-                            <div style={{ color: '#475569', fontSize: 12 }}>
-                              Score: {group.score}/{group.max_score} — mínimo: {group.min_score_confirm}
-                            </div>
-                          </div>
-                          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-                            {rows.map((r) => (
-                              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, alignItems: 'start' }}>
-                                <div style={{ color: '#334155', fontSize: 12 }}>
-                                  <strong>{r.id}</strong> (peso {r.weight})
-                                </div>
-                                <div>
-                                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: '#f1f5f9', border: '1px solid #e2e8f0' }}>
-                                      {ruleTriggerLabel(r.triggered)}
-                                    </span>
-                                    <span style={{ fontSize: 12, color: '#111827' }}>{r.name || '—'}</span>
-                                  </div>
-                                  {r.condition && (
-                                    <div style={{ fontSize: 12, color: '#64748b' }}>Condición: {String(r.condition)}</div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    }
+                  {['attendance', 'non_attendance'].map((groupKey) => {
+                    const config = MANUAL_VERIFICATION_RULES[groupKey]
+                    const autoGroup = selectedPrediction?.verification?.rules?.[groupKey]
 
                     return (
-                      <>
-                        <div style={{ color: '#475569', fontSize: 12 }}>
-                          Esta página muestra los criterios que se evaluaron y los puntos acumulados.
+                      <div className="verification-card" key={groupKey}>
+                        <div className="section-head">
+                          <h3>{config.title}</h3>
+                          <span>
+                            Puntaje manual {scoreManualGroup(groupKey, manualVerification[groupKey])} · mínimo {config.minScore}
+                          </span>
                         </div>
-                        {renderRules('Criterios de inasistencia (no-show)', na)}
-                        {renderRules('Criterios de asistencia (show)', at)}
-                      </>
+                        <div className="manual-checklist">
+                          {config.items.map((item) => {
+                            const autoCheck = autoGroup?.checks?.[item.id]
+                            return (
+                              <label className="manual-check-row" key={item.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={!!manualVerification[groupKey]?.[item.id]}
+                                  onChange={(event) => {
+                                    const checked = event.target.checked
+                                    setManualVerification((current) => ({
+                                      ...current,
+                                      [groupKey]: {
+                                        ...current[groupKey],
+                                        [item.id]: checked,
+                                      },
+                                    }))
+                                  }}
+                                />
+                                <div className="manual-check-content">
+                                  <div className="manual-check-head">
+                                    <strong>{item.label}</strong>
+                                    <span>Peso {item.weight}</span>
+                                  </div>
+                                  <span className="manual-check-condition">{item.condition}</span>
+                                  <span className="manual-check-rationale">{item.rationale}</span>
+                                  <span className="manual-check-auto">
+                                    Automático: {autoCheck?.triggered === true ? 'Cumple' : autoCheck?.triggered === false ? 'No cumple' : 'Sin dato'}
+                                  </span>
+                                </div>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
                     )
-                  })()}
+                  })}
                 </div>
               )}
 
-              <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                {/* Disable change button unless appointment is 'En espera' AND its date/time is already past */}
-                {(() => {
-                  const canChangeState = selectedAppt && selectedAppt.appointment_type === 2 && isAppointmentInPast(selectedAppt)
-                  return (
-                    <button
-                      onClick={() => { if (canChangeState) setShowSelectType(v => !v) }}
-                      disabled={!canChangeState}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: 6,
-                        background: canChangeState ? '#2563eb' : '#94a3b8',
-                        color: '#fff',
-                        border: 'none',
-                        cursor: canChangeState ? 'pointer' : 'not-allowed',
-                        opacity: canChangeState ? 1 : 0.6
-                      }}
-                    >
-                      Cambiar estado de cita
-                    </button>
-                  )
-                })()}
-                {showSelectType && selectedAppt && selectedAppt.appointment_type === 2 && isAppointmentInPast(selectedAppt) && (
+              <div className="modal-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!canChangeState}
+                  onClick={() => {
+                    if (canChangeState) setShowSelectType((value) => !value)
+                  }}
+                >
+                  Cambiar estado
+                </button>
+                {showSelectType && canChangeState && (
                   <select
-                    onChange={(e) => {
-                      const newType = Number(e.target.value)
-                      handleChangeAppointmentType(selectedAppt.id, newType)
+                    className="status-select"
+                    defaultValue={String(selectedAppt.appointment_type ?? '')}
+                    onChange={(event) => {
+                      handleChangeAppointmentType(selectedAppt.id, Number(event.target.value))
                       setShowSelectType(false)
                     }}
-                    defaultValue={String(selectedAppt.appointment_type ?? '')}
-                    style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db' }}
                   >
-                    <option value={0}>Asistida</option>
-                    <option value={1}>No show</option>
-                    <option value={2}>En espera</option>
+                    <option value="0">Asistida</option>
+                    <option value="1">No asistió</option>
+                    <option value="2">En espera</option>
                   </select>
                 )}
-                <button onClick={() => handleDelete(selectedAppt.id)} style={{ padding: '6px 10px', borderRadius: 6, background: '#dc2626', color: '#fff', border: 'none' }}>Eliminar cita</button>
-                <button onClick={() => { setShowDetails(false); setShowSelectType(false); setDetailsTab('info') }} style={{ padding: '6px 10px', borderRadius: 6 }}>Cerrar</button>
+                <button className="danger-button" type="button" onClick={() => handleDelete(selectedAppt.id)}>
+                  Eliminar
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => {
+                    setShowDetails(false)
+                    setDetailPrediction(null)
+                  }}
+                >
+                  Cerrar
+                </button>
               </div>
-            </div>
+            </section>
           </div>
         )}
-      </div>
+      </main>
     </div>
   )
 }
