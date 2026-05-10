@@ -17,6 +17,10 @@ class PredictionResponse(BaseModel):
     label: int
     final_label: Optional[int] = None
     probability: Optional[float]
+    prob_no_show: Optional[float] = None
+    prob_attend: Optional[float] = None
+    model_analysis: Optional[Dict[str, Any]] = None
+    shap_analysis: Optional[Dict[str, Any]] = None
     verification: Optional[Dict[str, Any]] = None
     model_version: Optional[str] = None
 

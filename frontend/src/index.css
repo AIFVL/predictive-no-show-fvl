@@ -489,6 +489,16 @@ select {
   background: linear-gradient(180deg, rgba(216, 230, 230, 0.35) 0%, #ffffff 100%);
 }
 
+.verification-probability-panel {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid rgba(13, 91, 126, 0.12);
+  border-radius: 18px;
+  background: rgba(251, 253, 253, 0.82);
+}
+
 .verification-grid::-webkit-scrollbar,
 .manual-checklist::-webkit-scrollbar {
   width: 10px;
@@ -628,6 +638,66 @@ select {
 
 .detail-box {
   padding: 18px;
+}
+
+.probability-box {
+  display: grid;
+  gap: 12px;
+}
+
+.probability-headline,
+.probability-pair,
+.factor-list {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.probability-headline strong:last-child {
+  font-size: 1.6rem;
+  color: var(--brand-dark);
+}
+
+.probability-meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(13, 91, 126, 0.12);
+}
+
+.probability-meter i {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  max-width: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.probability-pair,
+.model-analysis,
+.factor-list {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.model-analysis {
+  display: grid;
+  gap: 8px;
+}
+
+.factor-list {
+  justify-content: flex-start;
+}
+
+.factor-list span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(13, 91, 126, 0.08);
+  color: var(--brand-dark);
+  font-weight: 700;
 }
 
 .detail-box-wide {

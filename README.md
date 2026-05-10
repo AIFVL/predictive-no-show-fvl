@@ -1,6 +1,14 @@
 # predictive-no-show-fvl
 Predictive model for estimating patient no-shows in internal medicine outpatient consultations at Fundación Valle del Lili, using machine learning techniques to optimize appointment management and improve healthcare efficiency.
 
+## Backend inference
+
+The API now prioritizes `outputs/stacking/stacking_final.joblib` as the active inference artifact because it is the best-performing ensemble reported in the repository metrics. If that artifact is unavailable, the backend falls back to `backend/models/model.pkl`.
+
+Optional overrides:
+- `PREDICTIVE_MODEL_PATH`
+- `PREDICTIVE_METRICS_PATH`
+
 ## Stacking Final (LightGBM + XGBoost + CatBoost)
 
 ### Entrenar

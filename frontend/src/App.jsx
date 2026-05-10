@@ -185,10 +185,101 @@ const formatTimeLabel = (hour) => `${String(hour ?? 0).padStart(2, '0')}:00`
 
 const getProbAttendFromPrediction = (prediction) => {
   if (!prediction) return null
+  if (prediction.model_analysis?.probability_attend != null) return clamp01(prediction.model_analysis.probability_attend)
   if (prediction.prob_attend != null) return clamp01(prediction.prob_attend)
   if (prediction.prob_no_show != null) return clamp01(1 - Number(prediction.prob_no_show))
   if (prediction.probability != null) return clamp01(1 - Number(prediction.probability))
   return null
+}
+
+const getProbNoShowFromPrediction = (prediction) => {
+  if (!prediction) return null
+  if (prediction.model_analysis?.probability_no_show != null) return clamp01(prediction.model_analysis.probability_no_show)
+  if (prediction.prob_no_show != null) return clamp01(prediction.prob_no_show)
+  if (prediction.probability != null) return clamp01(prediction.probability)
+  if (prediction.prob_attend != null) return clamp01(1 - Number(prediction.prob_attend))
+  return null
+}
+
+const getPredictionProbabilitySummary = (prediction) => {
+  const finalLabel = prediction?.final_label ?? prediction?.predicted_label ?? prediction?.model_label
+  const probAttend = getProbAttendFromPrediction(prediction)
+  const probNoShow = getProbNoShowFromPrediction(prediction)
+
+  if (!prediction || (probAttend == null && probNoShow == null)) {
+    return {
+      label: 'Sin probabilidad',
+      probability: null,
+      probAttend,
+      probNoShow,
+    }
+  }
+
+  if (finalLabel === 1) {
+    return {
+      label: 'No asistirá',
+      probability: probNoShow,
+      probAttend,
+      probNoShow,
+    }
+  }
+
+  return {
+    label: 'Asistirá',
+    probability: probAttend,
+    probAttend,
+    probNoShow,
+  }
+}
+
+const getManualGroupMaxScore = (groupKey) => (
+  MANUAL_VERIFICATION_RULES[groupKey].items.reduce((total, item) => total + item.weight, 0)
+)
+
+const getAdjustedProbabilitySummary = (prediction, manualAttendanceScore, manualNonAttendanceScore) => {
+  const base = getPredictionProbabilitySummary(prediction)
+  const hasManualChecks = manualAttendanceScore > 0 || manualNonAttendanceScore > 0
+
+  if (!prediction || !hasManualChecks) {
+    return {
+      ...base,
+      adjusted: false,
+      modelProbAttend: base.probAttend,
+      modelProbNoShow: base.probNoShow,
+    }
+  }
+
+  const attendanceMax = getManualGroupMaxScore('attendance')
+  const nonAttendanceMax = getManualGroupMaxScore('non_attendance')
+  const attendanceStrength = attendanceMax > 0 ? manualAttendanceScore / attendanceMax : 0
+  const nonAttendanceStrength = nonAttendanceMax > 0 ? manualNonAttendanceScore / nonAttendanceMax : 0
+  const totalManualStrength = attendanceStrength + nonAttendanceStrength
+
+  const modelProbNoShow = base.probNoShow ?? 0.5
+  const manualProbNoShow = totalManualStrength > 0
+    ? nonAttendanceStrength / totalManualStrength
+    : modelProbNoShow
+  const manualWeight = Math.min(0.45, 0.15 + (0.3 * Math.max(attendanceStrength, nonAttendanceStrength)))
+  const probNoShow = clamp01((modelProbNoShow * (1 - manualWeight)) + (manualProbNoShow * manualWeight))
+  const probAttend = clamp01(1 - probNoShow)
+  const label = probNoShow > probAttend ? 'No asistirá' : 'Asistirá'
+
+  return {
+    label,
+    probability: label === 'No asistirá' ? probNoShow : probAttend,
+    probAttend,
+    probNoShow,
+    adjusted: true,
+    modelProbAttend: base.probAttend,
+    modelProbNoShow: base.probNoShow,
+    manualWeight,
+  }
+}
+
+const formatFactorValue = (value) => {
+  if (value == null || value === '') return 'Sin dato'
+  if (typeof value === 'number' && Number.isFinite(value)) return Number(value).toFixed(2)
+  return String(value)
 }
 
 const getRiskLevel = (prediction) => {
@@ -646,10 +737,17 @@ function App() {
   const selectedPrediction = detailPrediction ?? (selectedAppt ? predictionsMap[String(selectedAppt.id)] : null)
   const selectedRisk = getRiskSummary(selectedPrediction)
   const selectedPredictionHeadline = getPredictionHeadline(selectedPrediction)
+  const selectedModelAnalysis = selectedPrediction?.model_analysis ?? selectedPrediction?.shap_analysis ?? null
+  const selectedTopFactors = selectedModelAnalysis?.top_factors?.slice(0, 3) || []
   const canChangeState = selectedAppt && selectedAppt.appointment_type === 2 && isAppointmentTodayOrPast(selectedAppt)
   const isSelectedWaiting = selectedAppt?.appointment_type === 2
   const manualAttendanceScore = scoreManualGroup('attendance', manualVerification.attendance)
   const manualNonAttendanceScore = scoreManualGroup('non_attendance', manualVerification.non_attendance)
+  const selectedProbability = getAdjustedProbabilitySummary(
+    selectedPrediction,
+    manualAttendanceScore,
+    manualNonAttendanceScore,
+  )
 
   const manualVerificationSummary = useMemo(() => {
     const attendanceMin = MANUAL_VERIFICATION_RULES.attendance.minScore
@@ -930,6 +1028,40 @@ function App() {
                         <span>Predicción de la cita</span>
                         <strong>{selectedPredictionHeadline.short}</strong>
                       </div>
+                      <div className="detail-box probability-box detail-box-wide">
+                        <span>{selectedProbability.adjusted ? 'Probabilidad ajustada por checklist' : 'Probabilidad automática'}</span>
+                        <div className="probability-headline">
+                          <strong>{selectedProbability.label}</strong>
+                          <strong>{formatPercent(selectedProbability.probability)}</strong>
+                        </div>
+                        <div className="probability-meter" aria-hidden="true">
+                          <i style={{ width: `${Math.round((selectedProbability.probability ?? 0) * 100)}%` }} />
+                        </div>
+                        <div className="probability-pair">
+                          <span>Asistirá: {formatPercent(selectedProbability.probAttend)}</span>
+                          <span>No asistirá: {formatPercent(selectedProbability.probNoShow)}</span>
+                        </div>
+                        {selectedProbability.adjusted && (
+                          <div className="probability-pair">
+                            <span>Modelo base asistencia: {formatPercent(selectedProbability.modelProbAttend)}</span>
+                            <span>Modelo base inasistencia: {formatPercent(selectedProbability.modelProbNoShow)}</span>
+                          </div>
+                        )}
+                        {selectedModelAnalysis && (
+                          <div className="model-analysis">
+                            <span>{selectedModelAnalysis.method_label || 'Análisis del modelo'}</span>
+                            {selectedTopFactors.length > 0 && (
+                              <div className="factor-list">
+                                {selectedTopFactors.map((factor) => (
+                                  <span key={factor.feature}>
+                                    {factor.label}: {formatFactorValue(factor.value)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       <div className="detail-box">
                         <span>Origen de la predicción</span>
                         <strong>{getPredictionSourceLabel(selectedPrediction)}</strong>
@@ -964,6 +1096,19 @@ function App() {
                     <p className="verification-copy">
                       Usa estos checks manuales para validar la cita antes de marcarla como asistida o no asistió.
                     </p>
+                    <div className="verification-probability-panel">
+                      <div className="probability-headline">
+                        <strong>{selectedProbability.label}</strong>
+                        <strong>{formatPercent(selectedProbability.probability)}</strong>
+                      </div>
+                      <div className="probability-meter" aria-hidden="true">
+                        <i style={{ width: `${Math.round((selectedProbability.probability ?? 0) * 100)}%` }} />
+                      </div>
+                      <div className="probability-pair">
+                        <span>Asistirá: {formatPercent(selectedProbability.probAttend)}</span>
+                        <span>No asistirá: {formatPercent(selectedProbability.probNoShow)}</span>
+                      </div>
+                    </div>
                     <div className="manual-summary-grid">
                       <div className="manual-summary-box">
                         <strong>Asistencia</strong>
