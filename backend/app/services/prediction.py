@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional
 import joblib
 import pandas as pd
 
-from .double_verification import double_verify
+from .double_verification import DEFAULT_DOUBLE_VERIFICATION_CONFIG, double_verify
 
 
 warnings.filterwarnings(
@@ -295,6 +295,53 @@ def _feature_label(feature_name: str) -> str:
     return feature_name
 
 
+def _base_feature_name(feature_name: str) -> str:
+    categorical_prefixes = ("Sex_", "Insurance Type_", "Day_", "Month_")
+    for prefix in categorical_prefixes:
+        if feature_name.startswith(prefix):
+            return prefix[:-1]
+    return feature_name
+
+
+def _build_explanation_weights(
+    *,
+    model: Any,
+    df: pd.DataFrame,
+    raw_features: Dict[str, Any],
+    feature_columns: list[str],
+) -> Dict[str, Dict[str, float]]:
+    weights = _model_feature_weights(model, feature_columns)
+    if not weights or not feature_columns:
+        return {}
+
+    row = df.iloc[0].to_dict() if not df.empty else {}
+    explanation: Dict[str, Dict[str, float]] = {}
+
+    for idx, column in enumerate(feature_columns):
+        weight = float(weights[idx] if idx < len(weights) else 0.0)
+        if weight <= 0:
+            continue
+
+        value = _as_float(row.get(column))
+        raw_value = _json_safe_value(raw_features.get(column))
+        local_strength = float(weight * abs(value if value is not None else 1.0))
+        feature_names = {column, _base_feature_name(column)}
+
+        for feature_name in feature_names:
+            current = explanation.setdefault(
+                feature_name,
+                {
+                    "weight": 0.0,
+                    "local_strength": 0.0,
+                    "value": raw_value if raw_value is not None else _json_safe_value(row.get(column)),
+                },
+            )
+            current["weight"] += weight
+            current["local_strength"] += local_strength
+
+    return explanation
+
+
 def _build_model_analysis(
     *,
     model: Any,
@@ -304,6 +351,7 @@ def _build_model_analysis(
     probability_no_show: Optional[float],
     model_label: Optional[int],
     final_label: Optional[int],
+    explanation_weights: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Dict[str, Any]:
     """Return probabilities and explanatory weights for the frontend.
 
@@ -319,25 +367,24 @@ def _build_model_analysis(
     display_probability = prob_no_show if predicted_outcome == "no_show" else prob_attend
 
     factors: list[Dict[str, Any]] = []
-    weights = _model_feature_weights(model, feature_columns)
-    if weights and feature_columns:
-        row = df.iloc[0].to_dict() if not df.empty else {}
-        scored = []
-        for idx, column in enumerate(feature_columns):
-            value = _as_float(row.get(column))
-            raw_value = raw_features.get(column)
-            weight = weights[idx] if idx < len(weights) else 0.0
-            local_strength = weight * abs(value if value is not None else 1.0)
-            factor_value = raw_value if raw_value is not None else row.get(column)
-            scored.append((local_strength, weight, column, _json_safe_value(factor_value)))
+    if explanation_weights:
+        scored = [
+            (
+                float(info.get("local_strength", 0.0) or 0.0),
+                float(info.get("weight", 0.0) or 0.0),
+                feature,
+                info.get("value"),
+            )
+            for feature, info in explanation_weights.items()
+        ]
 
-        for strength, weight, column, value in sorted(scored, key=lambda item: item[0], reverse=True)[:6]:
+        for strength, weight, feature, value in sorted(scored, key=lambda item: item[0], reverse=True)[:6]:
             if weight <= 0:
                 continue
             factors.append(
                 {
-                    "feature": column,
-                    "label": _feature_label(column),
+                    "feature": feature,
+                    "label": _feature_label(feature),
                     "value": value,
                     "weight": float(weight),
                     "local_strength": float(strength),
@@ -404,9 +451,18 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
         y_pred = model.predict(df)
         label = int(y_pred[0])
 
+    explanation_weights = _build_explanation_weights(
+        model=model,
+        df=df,
+        raw_features=features,
+        feature_columns=feature_columns,
+    )
+
     verification = None
     final_label = None
     dv_cfg = METRICS.get("double_verification")
+    if not isinstance(dv_cfg, dict):
+        dv_cfg = DEFAULT_DOUBLE_VERIFICATION_CONFIG
     if isinstance(dv_cfg, dict) and proba is not None and isinstance(threshold, (int, float)):
         try:
             verification = double_verify(
@@ -414,6 +470,7 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
                 probability_no_show=float(proba),
                 model_threshold=float(threshold),
                 config=dv_cfg,
+                explanation_weights=explanation_weights,
             )
             final_label = verification.get("decision", {}).get("final_label")
         except Exception:
@@ -430,6 +487,7 @@ def predict_from_dict(features: Dict[str, Any]) -> Dict[str, Any]:
         probability_no_show=prob_no_show,
         model_label=label,
         final_label=final_label,
+        explanation_weights=explanation_weights,
     )
 
     return {

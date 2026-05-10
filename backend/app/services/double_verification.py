@@ -13,6 +13,153 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 
+DEFAULT_DOUBLE_VERIFICATION_CONFIG: Dict[str, Any] = {
+    "version": 1,
+    "non_attendance": {
+        "min_score_confirm": 4,
+        "rules": [
+            {
+                "id": "NA1",
+                "name": "Historial de inasistencias alto",
+                "condition": "Number of Previous Non-Attendance >= 2",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "NA2",
+                "name": "Alta tasa de no-show",
+                "condition": "Prev_NoShow_Rate > 0.5",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "NA3",
+                "name": "Baja experiencia con citas",
+                "condition": "Prev_Total <= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA4",
+                "name": "Última cita fue no-show",
+                "condition": "Last_Attendance == No-Show",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "NA5",
+                "name": "Intervalo largo de asignación",
+                "condition": "Creation to Assignment Interval > 7",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA6",
+                "name": "Cita con poca anticipación",
+                "condition": "Creation to Assignment Interval <= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA7",
+                "name": "Paciente joven + bajo compromiso",
+                "condition": "Age < 30 AND Number of Previous Attendance <= 1",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "NA8",
+                "name": "Baja carga clínica + bajo compromiso",
+                "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+                "weight": 1,
+                "enabled": True,
+            },
+        ],
+    },
+    "attendance": {
+        "min_score_confirm": 4,
+        "rules": [
+            {
+                "id": "A1",
+                "name": "Historial alto de asistencia",
+                "condition": "Number of Previous Attendance >= 3",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "A2",
+                "name": "Baja tasa de no-show",
+                "condition": "Prev_NoShow_Rate <= 0.2",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "A3",
+                "name": "Última cita fue asistida",
+                "condition": "Last_Attendance == Show",
+                "weight": 2,
+                "enabled": True,
+            },
+            {
+                "id": "A4",
+                "name": "Alta experiencia con citas",
+                "condition": "Prev_Total >= 4",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A5",
+                "name": "Intervalo moderado",
+                "condition": "3 <= Creation to Assignment Interval <= 7",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A6",
+                "name": "Paciente con mayor carga clínica",
+                "condition": "Number of Diseases >= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A7",
+                "name": "Mayor consumo de medicamentos",
+                "condition": "Number of Medications >= 2",
+                "weight": 1,
+                "enabled": True,
+            },
+            {
+                "id": "A8",
+                "name": "(Ambiguo) Baja carga clínica + bajo compromiso",
+                "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+                "weight": 1,
+                "enabled": False,
+            },
+        ],
+    },
+}
+
+
+RULE_FEATURES: Dict[str, Tuple[str, ...]] = {
+    "NA1": ("Number of Previous Non-Attendance",),
+    "NA2": ("Number of Previous Attendance", "Number of Previous Non-Attendance"),
+    "NA3": ("Number of Previous Attendance", "Number of Previous Non-Attendance"),
+    "NA4": ("Last Attendance", "Appointment Type"),
+    "NA5": ("Creation to Assignment Interval",),
+    "NA6": ("Creation to Assignment Interval",),
+    "NA7": ("Age", "Number of Previous Attendance"),
+    "NA8": ("Number of Diseases", "Number of Previous Attendance"),
+    "A1": ("Number of Previous Attendance",),
+    "A2": ("Number of Previous Attendance", "Number of Previous Non-Attendance"),
+    "A3": ("Last Attendance", "Appointment Type"),
+    "A4": ("Number of Previous Attendance", "Number of Previous Non-Attendance"),
+    "A5": ("Creation to Assignment Interval",),
+    "A6": ("Number of Diseases",),
+    "A7": ("Number of Medications",),
+    "A8": ("Number of Diseases", "Number of Previous Attendance"),
+}
+
+
 def _to_float(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -186,7 +333,45 @@ def _eval_rule(rule_id: str, features: Dict[str, Any]) -> Optional[bool]:
     return None
 
 
-def score_rules(features: Dict[str, Any], ruleset: Dict[str, Any]) -> Dict[str, Any]:
+def _rule_explanation(rule_id: str, explanation_weights: Optional[Dict[str, Dict[str, float]]]) -> Dict[str, Any]:
+    mapped_features = RULE_FEATURES.get(rule_id, ())
+    if not mapped_features or not explanation_weights:
+        return {
+            "shap_weight": None,
+            "shap_value": None,
+            "shap_features": list(mapped_features),
+        }
+
+    shap_weight = 0.0
+    shap_value = 0.0
+    matched = []
+    for feature in mapped_features:
+        feature_info = explanation_weights.get(feature)
+        if not feature_info:
+            continue
+        matched.append(feature)
+        shap_weight += float(feature_info.get("weight", 0.0) or 0.0)
+        shap_value += float(feature_info.get("local_strength", 0.0) or 0.0)
+
+    if not matched:
+        return {
+            "shap_weight": None,
+            "shap_value": None,
+            "shap_features": list(mapped_features),
+        }
+
+    return {
+        "shap_weight": float(shap_weight),
+        "shap_value": float(shap_value),
+        "shap_features": matched,
+    }
+
+
+def score_rules(
+    features: Dict[str, Any],
+    ruleset: Dict[str, Any],
+    explanation_weights: Optional[Dict[str, Dict[str, float]]] = None,
+) -> Dict[str, Any]:
     """Compute score + checklist for a ruleset configuration."""
 
     rules = list(ruleset.get("rules", []))
@@ -201,6 +386,7 @@ def score_rules(features: Dict[str, Any], ruleset: Dict[str, Any]) -> Dict[str, 
         rule_id = str(r.get("id"))
         enabled = bool(r.get("enabled", True))
         weight = int(r.get("weight", 1))
+        explanation = _rule_explanation(rule_id, explanation_weights)
 
         if not enabled:
             checks[rule_id] = {
@@ -209,6 +395,7 @@ def score_rules(features: Dict[str, Any], ruleset: Dict[str, Any]) -> Dict[str, 
                 "weight": weight,
                 "name": r.get("name"),
                 "condition": r.get("condition"),
+                **explanation,
             }
             continue
 
@@ -222,6 +409,7 @@ def score_rules(features: Dict[str, Any], ruleset: Dict[str, Any]) -> Dict[str, 
                 "weight": weight,
                 "name": r.get("name"),
                 "condition": r.get("condition"),
+                **explanation,
             }
             continue
 
@@ -235,6 +423,7 @@ def score_rules(features: Dict[str, Any], ruleset: Dict[str, Any]) -> Dict[str, 
             "weight": weight,
             "name": r.get("name"),
             "condition": r.get("condition"),
+            **explanation,
         }
 
     return {
@@ -253,6 +442,7 @@ def double_verify(
     probability_no_show: Optional[float],
     model_threshold: Optional[float],
     config: Dict[str, Any],
+    explanation_weights: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Dict[str, Any]:
     """Return rule scores and a conservative final label.
 
@@ -267,8 +457,8 @@ def double_verify(
     non_attendance_cfg = dict(config.get("non_attendance", {}))
     attendance_cfg = dict(config.get("attendance", {}))
 
-    non_attendance = score_rules(features, non_attendance_cfg)
-    attendance = score_rules(features, attendance_cfg)
+    non_attendance = score_rules(features, non_attendance_cfg, explanation_weights)
+    attendance = score_rules(features, attendance_cfg, explanation_weights)
 
     model_label: Optional[int] = None
     final_label: Optional[int] = None

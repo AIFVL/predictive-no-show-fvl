@@ -19,14 +19,13 @@ def _build_features_from_row(
     appointment_day: int,
     appointment_month: int,
 ) -> dict:
-    features = {c: (row[c] if c in row.index else None) for c in feature_columns}
+    features = {c: row[c] for c in row.index}
+    for c in feature_columns:
+        features.setdefault(c, row[c] if c in row.index else None)
     # Always prioritize the schedule currently stored in the appointment.
-    if "Hour" in features:
-        features["Hour"] = appointment_hour
-    if "Day" in features:
-        features["Day"] = appointment_day
-    if "Month" in features:
-        features["Month"] = appointment_month
+    features["Hour"] = appointment_hour
+    features["Day"] = appointment_day
+    features["Month"] = appointment_month
     return features
 
 

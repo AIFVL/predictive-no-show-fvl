@@ -35,7 +35,7 @@ const RISK_COPY = {
 
 const MANUAL_VERIFICATION_RULES = {
   non_attendance: {
-    title: 'Checklist manual de inasistencia',
+    title: 'Checklist automático de inasistencia',
     minScore: 4,
     items: [
       {
@@ -97,7 +97,7 @@ const MANUAL_VERIFICATION_RULES = {
     ],
   },
   attendance: {
-    title: 'Checklist manual de asistencia',
+    title: 'Checklist automático de asistencia',
     minScore: 4,
     items: [
       {
@@ -174,6 +174,11 @@ const clamp01 = (value) => Math.max(0, Math.min(1, Number(value)))
 const formatPercent = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'Sin dato'
   return `${(Number(value) * 100).toFixed(1)}%`
+}
+
+const formatShapValue = (value) => {
+  if (value == null || Number.isNaN(Number(value))) return 'Sin dato'
+  return Number(value).toFixed(4)
 }
 
 const formatDateLabel = (appointment) => {
@@ -754,15 +759,15 @@ function App() {
     const nonAttendanceMin = MANUAL_VERIFICATION_RULES.non_attendance.minScore
 
     if (manualAttendanceScore >= attendanceMin && manualNonAttendanceScore < nonAttendanceMin) {
-      return 'La revisión manual favorece asistencia.'
+      return 'La doble verificación automática favorece asistencia.'
     }
     if (manualNonAttendanceScore >= nonAttendanceMin && manualAttendanceScore < attendanceMin) {
-      return 'La revisión manual favorece inasistencia.'
+      return 'La doble verificación automática favorece inasistencia.'
     }
     if (manualAttendanceScore >= attendanceMin && manualNonAttendanceScore >= nonAttendanceMin) {
-      return 'La revisión manual tiene señales contradictorias.'
+      return 'La doble verificación automática tiene señales contradictorias.'
     }
-    return 'La revisión manual aún no confirma asistencia ni inasistencia.'
+    return 'La doble verificación automática aún no confirma asistencia ni inasistencia.'
   }, [manualAttendanceScore, manualNonAttendanceScore])
 
   return (
@@ -1029,7 +1034,7 @@ function App() {
                         <strong>{selectedPredictionHeadline.short}</strong>
                       </div>
                       <div className="detail-box probability-box detail-box-wide">
-                        <span>{selectedProbability.adjusted ? 'Probabilidad ajustada por checklist' : 'Probabilidad automática'}</span>
+                        <span>{selectedProbability.adjusted ? 'Probabilidad ajustada por doble verificación' : 'Probabilidad automática'}</span>
                         <div className="probability-headline">
                           <strong>{selectedProbability.label}</strong>
                           <strong>{formatPercent(selectedProbability.probability)}</strong>
@@ -1090,11 +1095,11 @@ function App() {
                 <div className="verification-grid">
                   <div className="verification-card verification-card-highlight">
                     <div className="section-head">
-                      <h3>Resumen manual</h3>
+                      <h3>Resumen automático</h3>
                       <span>{manualVerificationSummary}</span>
                     </div>
                     <p className="verification-copy">
-                      Usa estos checks manuales para validar la cita antes de marcarla como asistida o no asistió.
+                      El sistema cruza el paciente con la información disponible y marca automáticamente las condiciones que cumple.
                     </p>
                     <div className="verification-probability-panel">
                       <div className="probability-headline">
@@ -1142,7 +1147,7 @@ function App() {
                         <div className="section-head">
                           <h3>{config.title}</h3>
                           <span>
-                            Puntaje manual {scoreManualGroup(groupKey, manualVerification[groupKey])} · mínimo {config.minScore}
+                            Puntaje automático {scoreManualGroup(groupKey, manualVerification[groupKey])} · mínimo {config.minScore}
                           </span>
                         </div>
                         <div className="manual-checklist">
@@ -1153,26 +1158,18 @@ function App() {
                                 <input
                                   type="checkbox"
                                   checked={!!manualVerification[groupKey]?.[item.id]}
-                                  onChange={(event) => {
-                                    const checked = event.target.checked
-                                    setManualVerification((current) => ({
-                                      ...current,
-                                      [groupKey]: {
-                                        ...current[groupKey],
-                                        [item.id]: checked,
-                                      },
-                                    }))
-                                  }}
+                                  disabled
+                                  readOnly
                                 />
                                 <div className="manual-check-content">
                                   <div className="manual-check-head">
                                     <strong>{item.label}</strong>
-                                    <span>Peso {item.weight}</span>
+                                    <span>Peso  {formatPercent(autoCheck?.shap_weight)}</span>
                                   </div>
                                   <span className="manual-check-condition">{item.condition}</span>
                                   <span className="manual-check-rationale">{item.rationale}</span>
                                   <span className="manual-check-auto">
-                                    Automático: {autoCheck?.triggered === true ? 'Cumple' : autoCheck?.triggered === false ? 'No cumple' : 'Sin dato'}
+                                    Resultado: {autoCheck?.triggered === true ? 'Cumple' : autoCheck?.triggered === false ? 'No cumple' : 'Sin dato'} · Valor SHAP {formatShapValue(autoCheck?.shap_value)}
                                   </span>
                                 </div>
                               </label>

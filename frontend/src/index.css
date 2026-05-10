@@ -462,6 +462,11 @@ select {
   accent-color: var(--brand-dark);
 }
 
+.manual-check-row input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
 .manual-check-content {
   display: grid;
   gap: 4px;
