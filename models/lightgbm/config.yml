@@ -1,5 +1,5 @@
 smote:
-  enabled: false
+  enabled: true
   random_state: 42
   k_neighbors: 5
 lightgbm:
