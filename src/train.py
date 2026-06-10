@@ -77,6 +77,8 @@ def tune_threshold(
             score = f1_macro
         elif objective == "combo":
             score = 0.7 * f1_no_show + 0.3 * acc
+        elif objective == "f1_recall":
+            score = 0.6 * f1_no_show + 0.4 * recall
         else:
             score = f1_macro
 
@@ -177,6 +179,13 @@ def main(config_path: str) -> None:
         y_val = y_val.reset_index(drop=True)
         y_te = y_te.reset_index(drop=True)
         scaler = None
+
+    smote_cfg = model_cfg.get("smote", {})
+    if smote_cfg.get("enabled", False):
+        print(
+            f"\n SMOTE habilitado (via pipeline): "
+            f"{len(X_tr)} registros train, {(y_tr == 1).sum()} No-Show\n"
+        )
 
     pipeline = build_pipeline(model_cfg)
 

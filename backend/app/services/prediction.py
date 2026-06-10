@@ -2,11 +2,11 @@
 
 Supports two artifact formats currently present in the repository:
 
-1. `backend/models/model.pkl`
-   A serialized sklearn-compatible pipeline saved directly.
-2. `outputs/stacking/stacking_final.joblib`
+1. `outputs/catboost/catboost_final.joblib` (Primary)
    A dictionary artifact created by `src/train.py` containing the trained
-   model, feature columns and threshold.
+   CatBoost model, feature columns and threshold.
+2. `backend/models/model.pkl` (Legacy fallback)
+   A serialized sklearn-compatible pipeline saved directly.
 """
 from __future__ import annotations
 
@@ -32,6 +32,8 @@ warnings.filterwarnings(
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BASE_BACKEND = REPO_ROOT / "backend"
 
+CATBOOST_MODEL_PATH = REPO_ROOT / "outputs" / "catboost" / "catboost_final.joblib"
+CATBOOST_METRICS_PATH = REPO_ROOT / "outputs" / "catboost" / "catboost_final_metrics.json"
 STACKING_MODEL_PATH = REPO_ROOT / "outputs" / "stacking" / "stacking_final.joblib"
 STACKING_METRICS_PATH = REPO_ROOT / "outputs" / "stacking" / "stacking_final_metrics.json"
 LEGACY_MODEL_PATH = BASE_BACKEND / "models" / "model.pkl"
@@ -39,15 +41,27 @@ LEGACY_METRICS_PATH = BASE_BACKEND / "models" / "metrics.json"
 
 
 def _resolve_artifact_paths() -> tuple[Path, Path]:
-    """Pick the preferred model artifact, allowing overrides by env vars."""
+    """Pick the preferred model artifact, allowing overrides by env vars.
+    
+    Priority order:
+    1. Environment variable override (PREDICTIVE_MODEL_PATH)
+    2. CatBoost model (primary)
+    3. Stacking model (fallback)
+    4. Legacy model (legacy fallback)
+    """
 
     model_override = os.environ.get("PREDICTIVE_MODEL_PATH")
     metrics_override = os.environ.get("PREDICTIVE_METRICS_PATH")
     if model_override:
         model_path = Path(model_override)
-        metrics_path = Path(metrics_override) if metrics_override else STACKING_METRICS_PATH
+        metrics_path = Path(metrics_override) if metrics_override else CATBOOST_METRICS_PATH
         return model_path, metrics_path
 
+    # Prefer CatBoost model
+    if CATBOOST_MODEL_PATH.exists():
+        return CATBOOST_MODEL_PATH, CATBOOST_METRICS_PATH
+
+    # Fallback to Stacking
     if STACKING_MODEL_PATH.exists():
         return STACKING_MODEL_PATH, STACKING_METRICS_PATH
 
@@ -90,6 +104,8 @@ def _load_artifacts() -> Dict[str, Any]:
 
 def _infer_model_version() -> str:
     model_name = MODEL_PATH.name.lower()
+    if "catboost" in model_name:
+        return "catboost_final"
     if "stack" in model_name:
         return "stacking_final"
     if "lightgbm" in model_name:
