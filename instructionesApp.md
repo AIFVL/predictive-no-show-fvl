@@ -84,7 +84,7 @@ Estas instrucciones explican cómo ejecutar el frontend y backend localmente y c
 - `GET /appointments/{medic_id}` → lista citas del médico con id `medic_id`.
 - `GET /appointments/info/{appointment_id}` → devuelve información completa de una sola cita (usado por el modal de detalles).
 - `PUT /appointments/{appointment_id}` → actualizar cita (incluye `medic_id`).
-- `PATCH /appointments/{appointment_id}/type` → actualizar solo el tipo de cita.
+- `PATCH /appointments/{appointment_id}/type` → actualizar estado de cita (0=Asistida, 1=No asistió, 2=Pendiente). **Nota: Al cambiar a 0 o 1, se dispara automáticamente la actualización de datos de entrenamiento y reentrenamiento del modelo**.
 - `DELETE /appointments/{appointment_id}` → eliminar cita.
 
 Ejemplos (curl):
@@ -111,6 +111,75 @@ curl http://127.0.0.1:8000/appointments/info/1
 **Notas de diseño y estilos**
 - FullCalendar se inicializa en `frontend/src/App.jsx` y su CSS principal se carga desde CDN en `frontend/index.html`.  
 - El proyecto incluye clases Tailwind en el JSX; si Tailwind no está configurado en tu entorno, hay estilos inline de fallback para botones y el modal.
+
+---
+
+# Flujo de Actualización de Datos de Entrenamiento y Reentrenamiento
+
+## Descripción del proceso
+
+Cuando cambias el estado de una cita a **"Asistida"** (0) o **"No asistió"** (1):
+
+1. **Registro de datos:** Se crea un nuevo registro en `data/raw/database_non-shows.xlsx` con:
+   - Los datos clínicos del paciente (edad, enfermedades, medicamentos, etc.) del último registro histórico
+   - La información de la cita actual (hora, día, mes)
+   - El contador `Number of Previous Attendance` o `Number of Previous Non-Attendance` incrementado en 1
+   - El estado de asistencia registrado
+
+2. **Reentrenamiento automático:** El modelo se reentrena automáticamente usando:
+   - El Excel actualizado con el nuevo registro
+   - Todos los pasos de limpieza y normalización
+   - El pipeline sklearn con SMOTE, StandardScaler, OneHotEncoder
+   - LightGBM como modelo base
+
+3. **Predicciones futuras:** En la siguiente predicción para ese paciente:
+   - El modelo usará los datos históricos más recientes
+   - Los contadores de asistencias/no-asistencias estarán actualizados
+   - Las predicciones serán más precisas basadas en el comportamiento real
+
+## Arquitectura de la implementación
+
+**Nuevo servicio:** `backend/app/services/training_service.py`
+
+Funciones principales:
+- `get_latest_patient_record()` - Obtiene el último registro del paciente desde el Excel
+- `append_training_record()` - Añade un nuevo registro con datos actualizados
+- `retrain_model()` - Ejecuta el pipeline de entrenamiento
+- `handle_appointment_status_change()` - Orquesta todo el proceso
+
+**Cambios en endpoints:**
+- El endpoint `PATCH /appointments/{appointment_id}/type` ahora dispara automáticamente el proceso de entrenamiento cuando el estado cambia a 0 o 1
+
+## Ejemplo de uso
+
+```bash
+# 1. Cambiar estado de cita a "Asistida" (0)
+curl -X PATCH http://127.0.0.1:8000/appointments/1/type \
+  -H 'Content-Type: application/json' \
+  -d '0'
+
+# Detrás de escenas:
+# - Se guarda un nuevo registro en data/raw/database_non-shows.xlsx
+# - Se incrementa "Number of Previous Attendance" del paciente
+# - Se ejecuta train_pipeline.py automáticamente
+# - El modelo se actualiza con los nuevos datos
+
+# 2. Verificar que el reentrenamiento funcionó
+# Revisa los logs del servidor:
+# - "Training update: Cita actualizada: paciente p1, estado Asistida. Registro guardado y modelo reentrenado."
+```
+
+## Dependencias adicionales requeridas
+
+Asegúrate de que `backend/requirements.txt` incluya:
+```
+openpyxl>=3.0.0  # Para escribir/actualizar Excel
+```
+
+Si no está, instálalo manualmente:
+```powershell
+python -m pip install openpyxl
+```
 
 **Siguientes mejoras sugeridas**
 - Añadir validación en frontend para los campos del formulario (horas/fechas).  

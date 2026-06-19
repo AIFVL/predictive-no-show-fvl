@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from ..schemas import AppointmentCreate, AppointmentOut, AppointmentUpdate
 from ..db import Appointment, SessionLocal
 from ..services import db_service
+from ..services import training_service
 
 appointment_routes = APIRouter(prefix="/appointments", tags=["appointments"])
 
@@ -95,6 +96,20 @@ def update_appointment_type(appointment_id: int, appointment_type: int):
         )
         if not appt:
             raise HTTPException(status_code=404, detail="Appointment not found")
+        
+        # Si la cita cambió a "Asistida" (0) o "No asistió" (1),
+        # actualizar datos de entrenamiento y reentrenar el modelo
+        if appointment_type in (0, 1):
+            training_result = training_service.handle_appointment_status_change(
+                appointment=appt,
+                new_status=appointment_type,
+            )
+            # Log del resultado pero no interrumpir la respuesta
+            if training_result["success"]:
+                print(f"Training update: {training_result['message']}")
+            else:
+                print(f"Training warning: {training_result['message']}")
+        
         return appt
     except Exception as e:
         print("Error updating appointment type:", e)
