@@ -181,6 +181,161 @@ Si no está, instálalo manualmente:
 python -m pip install openpyxl
 ```
 
+---
+
+# Reentrenamiento Automático (Scheduler)
+
+## Descripción
+
+El sistema incluye un **temporizador automático (scheduler)** que reentrana el modelo periódicamente usando APScheduler. Esto permite que el modelo se actualice continuamente con los nuevos datos registrados de pacientes.
+
+## Flujo Completo
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Cambiar estado de cita (Asistida/No asistió)                │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────┐
+        │ Se crea registro en Excel  │
+        │ (con contadores actualizados)
+        └────────────────────────────┘
+                     │
+                     │ (Tan pronto como se guarde)
+                     │
+                     ▼
+        ┌────────────────────────────┐
+        │ SCHEDULER AUTOMÁTICO       │
+        │ (Cada 60 min por defecto)  │
+        │ Dispara train_pipeline.py  │
+        └────────────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────┐
+        │ Nuevo model.pkl generado   │
+        │ Métricas actualizadas      │
+        └────────────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────┐
+        │ Próxima predicción         │
+        │ Usa modelo actualizado     │
+        └────────────────────────────┘
+```
+
+## Configuración del Scheduler
+
+**Por defecto:** El scheduler se inicia automáticamente al iniciar el servidor y reentrena cada **60 minutos**.
+
+**Ubicación del código:**
+- Servicio: [backend/app/services/scheduler_service.py](backend/app/services/scheduler_service.py)
+- Rutas: [backend/app/routes/scheduler_routes.py](backend/app/routes/scheduler_routes.py)
+- Integración: [backend/app/main.py](backend/app/main.py)
+
+## Endpoints del Scheduler
+
+### 1. Iniciar el scheduler
+```bash
+curl -X POST http://127.0.0.1:8000/scheduler/start
+```
+**Respuesta:**
+```json
+{
+  "message": "Scheduler iniciado correctamente",
+  "status": {
+    "is_running": true,
+    "interval_minutes": 60,
+    "last_training_time": null,
+    "last_training_status": "No iniciado",
+    "next_job_time": "2026-06-19T15:30:00"
+  }
+}
+```
+
+### 2. Detener el scheduler
+```bash
+curl -X POST http://127.0.0.1:8000/scheduler/stop
+```
+
+### 3. Cambiar intervalo de reentrenamiento
+```bash
+# Reentrenar cada 30 minutos
+curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=30"
+
+# Reentrenar cada 2 horas (120 minutos)
+curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=120"
+```
+
+### 4. Ejecutar reentrenamiento manual (ahora mismo)
+```bash
+curl -X POST http://127.0.0.1:8000/scheduler/manual-retrain
+```
+
+### 5. Obtener estado del scheduler
+```bash
+curl http://127.0.0.1:8000/scheduler/status
+```
+**Respuesta:**
+```json
+{
+  "is_running": true,
+  "scheduler_running": true,
+  "interval_minutes": 60,
+  "last_training_time": "2026-06-19T14:30:22.123456",
+  "last_training_status": "✓ Exitoso",
+  "next_job_time": "2026-06-19T15:30:00"
+}
+```
+
+## Logs del Scheduler
+
+El scheduler imprime logs detallados en la consola. Busca mensajes como:
+
+```
+============================================================
+🔄 Iniciando reentrenamiento automático del modelo...
+============================================================
+✓ Reentrenamiento completado exitosamente
+Output:
+Cleaned data shape: (10000, 15)
+Accuracy: 0.87
+F1-Score: 0.85
+...
+============================================================
+```
+
+Si hay error:
+```
+✗ Reentrenamiento falló con código 1
+Error output: [mensajes de error]
+```
+
+## Configuración Recomendada
+
+**Para desarrollo (frecuente):**
+```bash
+# Reentrenar cada 10 minutos
+curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=10"
+```
+
+**Para producción (conservador):**
+```bash
+# Reentrenar cada 4 horas
+curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=240"
+```
+
+## Dependencias Adicionales
+
+Asegúrate de que `backend/requirements.txt` incluya:
+```
+apscheduler>=3.10.0
+```
+
+Está incluida en la lista de dependencias del proyecto.
+
+---
+
 **Siguientes mejoras sugeridas**
 - Añadir validación en frontend para los campos del formulario (horas/fechas).  
 - Formatear `created_at` en el modal (usar `Intl.DateTimeFormat`).  

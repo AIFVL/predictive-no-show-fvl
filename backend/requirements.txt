@@ -11,3 +11,4 @@ lightgbm
 python-dotenv
 openpyxl
 sqlalchemy
+apscheduler
