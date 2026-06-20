@@ -11,3 +11,4 @@ xgboost
 lightgbm
 catboost
 PyYAML
+apscheduler

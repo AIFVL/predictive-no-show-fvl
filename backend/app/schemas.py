@@ -14,6 +14,8 @@ class PatientInput(BaseModel):
 
 
 class PredictionResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     label: int
     final_label: Optional[int] = None
     probability: Optional[float]

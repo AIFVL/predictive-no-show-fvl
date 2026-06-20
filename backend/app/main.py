@@ -42,15 +42,18 @@ def on_startup():
     
     # Inicializar y iniciar el scheduler de reentrenamiento
     # TESTING: 180 segundos = 3 minutos (cambiar a 3600 para producción = 1 hora)
-    model_scheduler.initialize(interval_seconds=3600)
-    model_scheduler.start()
-    print("✓ Model retraining scheduler initialized and started (interval: 60 minutes)")
+    if model_scheduler.initialize(interval_seconds=3600):
+        model_scheduler.start()
+        print("✓ Model retraining scheduler initialized and started (interval: 60 minutes)")
+    else:
+        print("Model retraining scheduler disabled. Install backend requirements to enable it.")
 
 @app.on_event("shutdown")
 def on_shutdown():
     # Detener el scheduler
-    model_scheduler.stop()
-    print("✓ Model retraining scheduler stopped")
+    if model_scheduler.get_status().get("available"):
+        model_scheduler.stop()
+        print("✓ Model retraining scheduler stopped")
     print("Shutting down application")
 
 

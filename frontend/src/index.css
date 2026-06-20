@@ -311,8 +311,9 @@ select {
 .legend-dot-blue { background: #2563eb; }
 .legend-dot-green { background: #16a34a; }
 .legend-dot-red { background: #dc2626; }
+.legend-dot-orange { background: #ea580c; }
 .legend-dot-amber { background: #f59e0b; }
-.legend-dot-gray { background: #94a3b8; }
+.legend-dot-gray { background: #64748b; }
 
 .stats-grid {
   display: grid;
@@ -846,4 +847,13 @@ select {
     flex-wrap: wrap;
     gap: 8px;
   }
+}
+
+.loading-banner {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--text);
+  font-size: 0.95rem;
 }

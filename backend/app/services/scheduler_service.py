@@ -9,9 +9,18 @@ import sys
 import logging
 from pathlib import Path
 from datetime import datetime
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.executors.pool import ThreadPoolExecutor
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    from apscheduler.executors.pool import ThreadPoolExecutor
+except ModuleNotFoundError as exc:
+    BackgroundScheduler = None
+    IntervalTrigger = None
+    ThreadPoolExecutor = None
+    APSCHEDULER_IMPORT_ERROR = exc
+else:
+    APSCHEDULER_IMPORT_ERROR = None
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +45,16 @@ class ModelRetrainingScheduler:
             interval_seconds: Intervalo en SEGUNDOS entre reentrenamientos (default 3600 = 1 hora)
         """
         try:
+            if APSCHEDULER_IMPORT_ERROR is not None:
+                logger.warning(
+                    "Scheduler deshabilitado: falta instalar APScheduler (%s)",
+                    APSCHEDULER_IMPORT_ERROR,
+                )
+                self.last_training_status = (
+                    "Scheduler deshabilitado: instala APScheduler para reentrenamiento automatico"
+                )
+                return False
+
             self.training_interval_minutes = interval_seconds / 60
             
             # Configurar scheduler con ejecutor de threads
@@ -226,6 +245,7 @@ class ModelRetrainingScheduler:
                 next_run = job.next_run_time.isoformat() if job.next_run_time else None
         
         return {
+            "available": APSCHEDULER_IMPORT_ERROR is None,
             "is_running": self.is_running,
             "scheduler_running": self.scheduler.running if self.scheduler else False,
             "interval_minutes": self.training_interval_minutes,

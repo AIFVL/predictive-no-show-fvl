@@ -1,10 +1,18 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from ..schemas import AppointmentCreate, AppointmentOut, AppointmentUpdate
 from ..db import Appointment, SessionLocal
 from ..services import db_service
 from ..services import training_service
+from ..utils.appointment_dates import DEFAULT_DAYS_WINDOW, normalize_days_window
 
 appointment_routes = APIRouter(prefix="/appointments", tags=["appointments"])
+
+
+def _resolve_days(days: int | None) -> int | None:
+    try:
+        return normalize_days_window(days)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @appointment_routes.post("/", response_model=AppointmentOut)
@@ -30,10 +38,10 @@ def create_appointment(payload: AppointmentCreate):
 
 
 @appointment_routes.get("/", response_model=list[AppointmentOut])
-def get_appointments():
+def get_appointments(days: int | None = Query(default=DEFAULT_DAYS_WINDOW)):
     db = SessionLocal()
     try:
-        appts = db_service.list_appointments(db)
+        appts = db_service.list_appointments(db, days=_resolve_days(days))
         return appts
     finally:
         db.close()
@@ -50,10 +58,13 @@ def get_appointment_info(appointment_id: int):
         db.close()
 
 @appointment_routes.get("/{medic_id}", response_model=list[AppointmentOut])
-def get_appointments_by_medic(medic_id: str):
+def get_appointments_by_medic(
+    medic_id: str,
+    days: int | None = Query(default=DEFAULT_DAYS_WINDOW),
+):
     db = SessionLocal()
     try:
-        appts = db_service.list_appointments_by_medic(db, medic_id)
+        appts = db_service.list_appointments_by_medic(db, medic_id, days=_resolve_days(days))
         return appts
     finally:
         db.close()

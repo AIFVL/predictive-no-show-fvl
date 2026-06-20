@@ -1,14 +1,18 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from ..schemas import PatientInput, PredictionResponse
 from ..services import prediction as prediction_service
 from ..services import db_service
 from ..db import SessionLocal
+from ..utils.appointment_dates import DEFAULT_DAYS_WINDOW, normalize_days_window
 from pathlib import Path
 import hashlib
 import pandas as pd
 
 
 prediction_routes = APIRouter(tags=["prediction"])
+
+_PROCESSED_DF_CACHE: pd.DataFrame | None = None
+_PROCESSED_DF_MTIME: float | None = None
 
 
 def _build_features_from_row(
@@ -44,11 +48,26 @@ def _fallback_row_for_appointment(df: pd.DataFrame, patient_id: str, medic_id: s
 
 
 def _load_processed_df() -> pd.DataFrame:
+    global _PROCESSED_DF_CACHE, _PROCESSED_DF_MTIME
     repo_root = Path(__file__).resolve().parents[3]
     processed_csv = repo_root / "data" / "processed" / "df_limpio.csv"
     if not processed_csv.exists():
         raise HTTPException(status_code=500, detail=f"Processed dataset not found at {processed_csv}")
-    return pd.read_csv(processed_csv)
+
+    mtime = processed_csv.stat().st_mtime
+    if _PROCESSED_DF_CACHE is not None and _PROCESSED_DF_MTIME == mtime:
+        return _PROCESSED_DF_CACHE
+
+    _PROCESSED_DF_CACHE = pd.read_csv(processed_csv)
+    _PROCESSED_DF_MTIME = mtime
+    return _PROCESSED_DF_CACHE
+
+
+def _resolve_days(days: int | None) -> int | None:
+    try:
+        return normalize_days_window(days)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _norm_col(name: str) -> str:
@@ -201,18 +220,20 @@ def prediction_for_appointment(appointment_id: int):
 
 
 @prediction_routes.get("/predictions/waiting")
-def predictions_for_waiting(medic_id: str | None = None):
-    """Predict no-show probability for appointments currently in 'En espera' (type 2).
+def predictions_for_waiting(
+    medic_id: str | None = None,
+    days: int | None = Query(default=DEFAULT_DAYS_WINDOW),
+):
+    """Predict no-show probability for appointments in 'En espera' (type 2).
 
-    Optional `medic_id` query parameter filters to a single medic.
-    Returns aggregated percentages and per-appointment probabilities.
+    Optional `medic_id` filters to a single medic.
+    Optional `days` limits to appointments from today through today+N (default 8).
     """
     db = SessionLocal()
     try:
-        # Ensure model + metrics are loaded before using feature_columns.
         prediction_service._ensure_loaded()
-        appts = db_service.list_appointments(db)
-        # filter waiting
+        window_days = _resolve_days(days)
+        appts = db_service.list_appointments(db, days=window_days)
         waiting = [a for a in appts if int(a.appointment_type) == 2]
         if medic_id:
             waiting = [a for a in waiting if str(a.medic_id) == str(medic_id)]
@@ -260,6 +281,7 @@ def predictions_for_waiting(medic_id: str | None = None):
         return {
             "total_waiting": total,
             "analyzed": analyzed,
+            "days_window": window_days,
             "mean_prob_no_show": mean_prob_no_show,
             "mean_prob_attend": mean_prob_attend,
             "percent_model_predicted_no_show": percent_model_predicted_no_show,

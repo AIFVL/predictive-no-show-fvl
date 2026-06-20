@@ -1,8 +1,9 @@
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
 from ..db import Appointment
+from ..utils.appointment_dates import filter_by_forward_window
 
 
 def create_appointment(db: Session, medic_id: str, patient_id: str, hour: int, day: int, month: int, appointment_type: int = 2) -> Appointment:
@@ -20,12 +21,19 @@ def create_appointment(db: Session, medic_id: str, patient_id: str, hour: int, d
     return appt
 
 
-def list_appointments(db: Session) -> List[Appointment]:
-    return db.query(Appointment).order_by(Appointment.created_at.desc()).all()
+def list_appointments(db: Session, days: Optional[int] = None) -> List[Appointment]:
+    appts = db.query(Appointment).order_by(Appointment.created_at.desc()).all()
+    return filter_by_forward_window(appts, days)
 
 
-def list_appointments_by_medic(db: Session, medic_id: str) -> List[Appointment]:
-    return db.query(Appointment).filter(Appointment.medic_id == medic_id).order_by(Appointment.created_at.desc()).all()
+def list_appointments_by_medic(db: Session, medic_id: str, days: Optional[int] = None) -> List[Appointment]:
+    appts = (
+        db.query(Appointment)
+        .filter(Appointment.medic_id == medic_id)
+        .order_by(Appointment.created_at.desc())
+        .all()
+    )
+    return filter_by_forward_window(appts, days)
 
 def get_appointment_info(db: Session, appointment_id: int) -> Appointment:
     return db.query(Appointment).filter(Appointment.id == appointment_id).first()
