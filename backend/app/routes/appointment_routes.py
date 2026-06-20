@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, Query
+from types import SimpleNamespace
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from ..schemas import AppointmentCreate, AppointmentOut, AppointmentUpdate
 from ..db import Appointment, SessionLocal
 from ..services import db_service
@@ -6,6 +8,17 @@ from ..services import training_service
 from ..utils.appointment_dates import DEFAULT_DAYS_WINDOW, normalize_days_window
 
 appointment_routes = APIRouter(prefix="/appointments", tags=["appointments"])
+
+
+def _run_training_update_after_status_change(appointment_snapshot, appointment_type: int) -> None:
+    training_result = training_service.handle_appointment_status_change(
+        appointment=appointment_snapshot,
+        new_status=appointment_type,
+    )
+    if training_result["success"]:
+        print(f"Training update: {training_result['message']}")
+    else:
+        print(f"Training warning: {training_result['message']}")
 
 
 def _resolve_days(days: int | None) -> int | None:
@@ -97,7 +110,11 @@ def update_appointment(appointment_id: int, payload: AppointmentUpdate):
         db.close()
 
 @appointment_routes.patch("/type/{appointment_id}", response_model=AppointmentOut)
-def update_appointment_type(appointment_id: int, appointment_type: int):
+def update_appointment_type(
+    appointment_id: int,
+    appointment_type: int,
+    background_tasks: BackgroundTasks,
+):
     if appointment_type not in (0, 1, 2):
         raise HTTPException(status_code=400, detail="appointment_type must be 0, 1 or 2")
     db = SessionLocal()
@@ -108,18 +125,23 @@ def update_appointment_type(appointment_id: int, appointment_type: int):
         if not appt:
             raise HTTPException(status_code=404, detail="Appointment not found")
         
-        # Si la cita cambió a "Asistida" (0) o "No asistió" (1),
-        # actualizar datos de entrenamiento y reentrenar el modelo
+        # Si la cita cambió a "Asistida" (0) o "No asistió" (1), actualizar
+        # datos de entrenamiento y reentrenar en segundo plano para no atrasar la UI.
         if appointment_type in (0, 1):
-            training_result = training_service.handle_appointment_status_change(
-                appointment=appt,
-                new_status=appointment_type,
+            appointment_snapshot = SimpleNamespace(
+                id=appt.id,
+                medic_id=appt.medic_id,
+                patient_id=appt.patient_id,
+                hour=appt.hour,
+                day=appt.day,
+                month=appt.month,
+                appointment_type=appt.appointment_type,
             )
-            # Log del resultado pero no interrumpir la respuesta
-            if training_result["success"]:
-                print(f"Training update: {training_result['message']}")
-            else:
-                print(f"Training warning: {training_result['message']}")
+            background_tasks.add_task(
+                _run_training_update_after_status_change,
+                appointment_snapshot,
+                appointment_type,
+            )
         
         return appt
     except Exception as e:

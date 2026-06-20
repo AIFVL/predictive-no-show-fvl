@@ -149,13 +149,6 @@ export const getPredictionHeadline = (prediction) => {
   return { short: 'Asistirá', long: 'Predicción final para esta cita programada: asistirá.' }
 }
 
-export const getPredictionSourceLabel = (prediction) => {
-  if (!prediction) return 'Sin fuente de predicción'
-  if (prediction.feature_source === 'matched_dataset_row') return 'Fuente: cruce directo con dataset'
-  if (prediction.feature_source === 'fallback_reference_profile') return 'Fuente: perfil de referencia del dataset'
-  return 'Fuente: predicción disponible'
-}
-
 export const getToneClass = (tone) => {
   if (tone === 'critical') return 'tone-pill tone-pill-critical'
   if (tone === 'warning') return 'tone-pill tone-pill-warning'

@@ -4,6 +4,7 @@ from ..services import prediction as prediction_service
 from ..services import db_service
 from ..db import SessionLocal
 from ..utils.appointment_dates import DEFAULT_DAYS_WINDOW, normalize_days_window
+from datetime import date
 from pathlib import Path
 import hashlib
 import pandas as pd
@@ -68,6 +69,18 @@ def _resolve_days(days: int | None) -> int | None:
         return normalize_days_window(days)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _resolve_reference_date(reference_date: str | None) -> date | None:
+    if not reference_date:
+        return None
+    try:
+        return date.fromisoformat(reference_date)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="reference_date must use YYYY-MM-DD format",
+        ) from exc
 
 
 def _norm_col(name: str) -> str:
@@ -223,17 +236,25 @@ def prediction_for_appointment(appointment_id: int):
 def predictions_for_waiting(
     medic_id: str | None = None,
     days: int | None = Query(default=DEFAULT_DAYS_WINDOW),
+    reference_date: str | None = None,
 ):
     """Predict no-show probability for appointments in 'En espera' (type 2).
 
     Optional `medic_id` filters to a single medic.
-    Optional `days` limits to appointments from today through today+N (default 8).
+    Optional `days` limits to appointments from reference_date through reference_date+N (default 8).
+    Optional `reference_date` lets the calendar request predictions for the visible month.
     """
     db = SessionLocal()
     try:
         prediction_service._ensure_loaded()
         window_days = _resolve_days(days)
-        appts = db_service.list_appointments(db, days=window_days)
+        reference = _resolve_reference_date(reference_date)
+        appts = db_service.list_appointments(
+            db,
+            days=window_days,
+            include_past=False,
+            reference=reference,
+        )
         waiting = [a for a in appts if int(a.appointment_type) == 2]
         if medic_id:
             waiting = [a for a in waiting if str(a.medic_id) == str(medic_id)]
@@ -282,6 +303,7 @@ def predictions_for_waiting(
             "total_waiting": total,
             "analyzed": analyzed,
             "days_window": window_days,
+            "reference_date": reference.isoformat() if reference else None,
             "mean_prob_no_show": mean_prob_no_show,
             "mean_prob_attend": mean_prob_attend,
             "percent_model_predicted_no_show": percent_model_predicted_no_show,
