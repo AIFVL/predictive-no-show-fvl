@@ -1,0 +1,15 @@
+smote:
+  enabled: false
+  random_state: 42
+  k_neighbors: 5
+catboost:
+  loss_function: Logloss
+  eval_metric: F1
+  random_seed: 42
+  depth: 6
+  learning_rate: 0.05
+  iterations: 600
+  l2_leaf_reg: 3.0
+  auto_class_weights: Balanced
+  verbose: false
+  allow_writing_files: false
