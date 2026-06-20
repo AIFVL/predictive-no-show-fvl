@@ -1,345 +1,487 @@
-# Resumen de lo hecho (backend)
+# Instrucciones de la aplicacion Predictive No-Show FVL
 
-- Estructura propuesta
-  - backend/
-    - app/ (FastAPI aún por crear)
-    - models/ (contiene train_pipeline.py)
-    - tests/, scripts/, data/ etc.
-  - data/raw/database_non-shows.xlsx debe existir
-  - data/processed/ contiene df_limpio.csv tras limpieza
+Esta guia resume como instalar, entrenar, validar y ejecutar la aplicacion completa. El modelo principal actual es **CatBoost**; LightGBM, XGBoost y Stacking quedan como modelos alternativos o de comparacion.
 
-- train_pipeline.py (backend/models/train_pipeline.py)
-  - Carga raw Excel desde data/raw/
-  - Normaliza nombres y tipos de columna (replica 02_Limpieza.ipynb)
-  - Aplica reglas de validación y elimina duplicados
-  - Quita outliers (Creation to Assignment Interval > 365)
-  - Selecciona features numéricas y categóricas según notebook
-  - Construye pipeline sklearn:
-    - ColumnTransformer: OneHotEncoder (categoricals) + StandardScaler (num)
-    - Imputación/llenado simple donde procede
-    - Modelo por defecto: DecisionTreeClassifier (parámetros ya tuneados en notebook)
-  - Entrena, valida (train/test split) e imprime métricas (accuracy, classification_report)
-  - Serializa el pipeline en backend/models/model.pkl
-  - Guarda métricas en backend/models/metrics.json y df_limpio.csv en data/processed/
+## Requisitos
 
-- Dependencias
-  - Se sugirió backend/requirements.txt (o backend/requirement.txt en tu repo)
-  - Comando de instalación (desde la raíz del repo, Windows):
-    - Si el fichero es backend\requirements.txt:
-      python -m pip install -r backend\requirements.txt
-    - Si el fichero es backend\requirement.txt:
-      python -m pip install -r backend\requirement.txt
-    - Alternativa: renombrar backend\requirement.txt → backend\requirements.txt y luego instalar
+- Python 3.10 o superior.
+- Node.js y npm.
+- Windows PowerShell, Git Bash o una terminal equivalente.
+- Dataset limpio en `data/processed/df_limpio.csv`.
+- Para regenerar el dataset desde Excel: `data/raw/database_non-shows.xlsx`.
 
-- Cómo generar el .pkl (ya listo)
-  - Ejecutar desde la raíz:
-    python backend\models\train_pipeline.py
-  - Verificar que data/raw/database_non-shows.xlsx existe antes de ejecutar
-  - Tras ejecución: revisar backend/models/model.pkl y backend/models/metrics.json
+## Instalacion
 
-- Sugerencias previas ya dadas (opcionalmente implementadas)
-  - Crear backend/app/deps.py para centralizar imports (conveniencia)
-  - Crear FastAPI app (backend/app/main.py, schemas, services/prediction.py) que cargue model.pkl con joblib y exponga endpoint /predict
-  - Persistencia: usar SQLite/Postgres y ORM (SQLModel/SQLAlchemy) para citas/pacientes
+Desde la raiz del repositorio:
 
----
-
-# Instrucciones principales (resumen de uso)
-
-Estas instrucciones explican cómo ejecutar el frontend y backend localmente y cómo usar los endpoints implementados hasta ahora.
-
-**Requisitos previos**
-- Tener Python 3.10+ instalado.
-- Node.js + npm para el frontend.
-- (Opcional) Activar / pausar OneDrive si los archivos de DB se encuentran en una carpeta sincronizada.
-
-**Ejecutar backend (API)**
-- Instalar dependencias (desde la raíz):
-  ```powershell
-  python -m pip install -r backend/requirements.txt
-  ```
-- Iniciar el servidor (desde la raíz del repo):
-  ```powershell
-  python -m uvicorn backend.app.main:app --reload --port 8000
-  ```
-- Nota: `init_db()` crea las tablas y contiene una comprobación ligera que añade la columna `medic_id` si falta (no borra datos).
-
-**Recrear la base de datos (opcional, borra datos existentes)**
-- Si quieres empezar desde cero borra `backend/appointments.db` (asegúrate de parar el servidor primero). Luego reinicia Uvicorn y la DB se recreará.
-
-**Ejecutar frontend**
-- Ir al directorio `frontend` y instalar dependencias:
-  ```bash
-  cd frontend
-  npm install
-  npm run dev
-  ```
-- El frontend asume que el backend está en `http://localhost:8000`.
-- FullCalendar CSS se carga vía CDN en `frontend/index.html` (por compatibilidad con dependencias que no exportan el CSS directamente).
-
-**Endpoints disponibles (resumen)**
-- `GET /health` → estado (dev).  
-- `GET /appointments/` → lista todas las citas.  
-- `POST /appointments/` → crear cita. Payload JSON: `{ "medic_id": "m1", "patient_id": "p1", "hour":10, "day":5, "month":6 }`.
-- `GET /appointments/{medic_id}` → lista citas del médico con id `medic_id`.
-- `GET /appointments/info/{appointment_id}` → devuelve información completa de una sola cita (usado por el modal de detalles).
-- `PUT /appointments/{appointment_id}` → actualizar cita (incluye `medic_id`).
-- `PATCH /appointments/{appointment_id}/type` → actualizar estado de cita (0=Asistida, 1=No asistió, 2=Pendiente). **Nota: Al cambiar a 0 o 1, se dispara automáticamente la actualización de datos de entrenamiento y reentrenamiento del modelo**.
-- `DELETE /appointments/{appointment_id}` → eliminar cita.
-
-Ejemplos (curl):
-```bash
-# Crear cita
-curl -X POST http://127.0.0.1:8000/appointments/ -H 'Content-Type: application/json' -d '{"medic_id":"m1","patient_id":"p1","hour":10,"day":5,"month":6}'
-
-# Listar todas
-curl http://127.0.0.1:8000/appointments/
-
-# Buscar por médico
-curl http://127.0.0.1:8000/appointments/m1
-
-# Info de una cita
-curl http://127.0.0.1:8000/appointments/info/1
-```
-
-**Comportamiento del frontend**
-- El calendario (FullCalendar) muestra las citas convirtiendo `hour`, `day`, `month` a una fecha en 2026 por defecto.  
-- Añadir cita: hay un botón y un formulario inline que envía `POST /appointments/` y refresca la vista.  
-- Buscar por Médico ID: barra en la cabecera; al buscar llama `GET /appointments/{medic_id}` y muestra sólo esas citas.  
-- Detalle de cita: al hacer click en un evento el frontend llama `GET /appointments/info/{appointment_id}` y muestra un modal con toda la información.
-
-**Notas de diseño y estilos**
-- FullCalendar se inicializa en `frontend/src/App.jsx` y su CSS principal se carga desde CDN en `frontend/index.html`.  
-- El proyecto incluye clases Tailwind en el JSX; si Tailwind no está configurado en tu entorno, hay estilos inline de fallback para botones y el modal.
-
----
-
-# Flujo de Actualización de Datos de Entrenamiento y Reentrenamiento
-
-## Descripción del proceso
-
-Cuando cambias el estado de una cita a **"Asistida"** (0) o **"No asistió"** (1):
-
-1. **Registro de datos:** Se crea un nuevo registro en `data/raw/database_non-shows.xlsx` con:
-   - Los datos clínicos del paciente (edad, enfermedades, medicamentos, etc.) del último registro histórico
-   - La información de la cita actual (hora, día, mes)
-   - El contador `Number of Previous Attendance` o `Number of Previous Non-Attendance` incrementado en 1
-   - El estado de asistencia registrado
-
-2. **Reentrenamiento automático:** El modelo se reentrena automáticamente usando:
-   - El Excel actualizado con el nuevo registro
-   - Todos los pasos de limpieza y normalización
-   - El pipeline sklearn con SMOTE, StandardScaler, OneHotEncoder
-   - LightGBM como modelo base
-
-3. **Predicciones futuras:** En la siguiente predicción para ese paciente:
-   - El modelo usará los datos históricos más recientes
-   - Los contadores de asistencias/no-asistencias estarán actualizados
-   - Las predicciones serán más precisas basadas en el comportamiento real
-
-## Arquitectura de la implementación
-
-**Nuevo servicio:** `backend/app/services/training_service.py`
-
-Funciones principales:
-- `get_latest_patient_record()` - Obtiene el último registro del paciente desde el Excel
-- `append_training_record()` - Añade un nuevo registro con datos actualizados
-- `retrain_model()` - Ejecuta el pipeline de entrenamiento
-- `handle_appointment_status_change()` - Orquesta todo el proceso
-
-**Cambios en endpoints:**
-- El endpoint `PATCH /appointments/{appointment_id}/type` ahora dispara automáticamente el proceso de entrenamiento cuando el estado cambia a 0 o 1
-
-## Ejemplo de uso
-
-```bash
-# 1. Cambiar estado de cita a "Asistida" (0)
-curl -X PATCH http://127.0.0.1:8000/appointments/1/type \
-  -H 'Content-Type: application/json' \
-  -d '0'
-
-# Detrás de escenas:
-# - Se guarda un nuevo registro en data/raw/database_non-shows.xlsx
-# - Se incrementa "Number of Previous Attendance" del paciente
-# - Se ejecuta train_pipeline.py automáticamente
-# - El modelo se actualiza con los nuevos datos
-
-# 2. Verificar que el reentrenamiento funcionó
-# Revisa los logs del servidor:
-# - "Training update: Cita actualizada: paciente p1, estado Asistida. Registro guardado y modelo reentrenado."
-```
-
-## Dependencias adicionales requeridas
-
-Asegúrate de que `backend/requirements.txt` incluya:
-```
-openpyxl>=3.0.0  # Para escribir/actualizar Excel
-```
-
-Si no está, instálalo manualmente:
 ```powershell
-python -m pip install openpyxl
+python -m pip install -r requirements.txt
+python -m pip install -r backend/requirements.txt
 ```
 
----
+El `requirements.txt` principal instala las dependencias de entrenamiento, incluyendo CatBoost. El `backend/requirements.txt` instala las dependencias de la API FastAPI, tambien con CatBoost para poder cargar `outputs/catboost/catboost_final.joblib`.
 
-# Reentrenamiento Automático (Scheduler)
+Instalar el frontend:
 
-## Descripción
-
-El sistema incluye un **temporizador automático (scheduler)** que reentrana el modelo periódicamente usando APScheduler. Esto permite que el modelo se actualice continuamente con los nuevos datos registrados de pacientes.
-
-## Flujo Completo
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Cambiar estado de cita (Asistida/No asistió)                │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-                     ▼
-        ┌────────────────────────────┐
-        │ Se crea registro en Excel  │
-        │ (con contadores actualizados)
-        └────────────────────────────┘
-                     │
-                     │ (Tan pronto como se guarde)
-                     │
-                     ▼
-        ┌────────────────────────────┐
-        │ SCHEDULER AUTOMÁTICO       │
-        │ (Cada 60 min por defecto)  │
-        │ Dispara train_pipeline.py  │
-        └────────────────────────────┘
-                     │
-                     ▼
-        ┌────────────────────────────┐
-        │ Nuevo model.pkl generado   │
-        │ Métricas actualizadas      │
-        └────────────────────────────┘
-                     │
-                     ▼
-        ┌────────────────────────────┐
-        │ Próxima predicción         │
-        │ Usa modelo actualizado     │
-        └────────────────────────────┘
+```powershell
+cd frontend
+npm install
+cd ..
 ```
 
-## Configuración del Scheduler
+## Modelo principal: CatBoost
 
-**Por defecto:** El scheduler se inicia automáticamente al iniciar el servidor y reentrena cada **60 minutos**.
+### Entrenar CatBoost
 
-**Ubicación del código:**
-- Servicio: [backend/app/services/scheduler_service.py](backend/app/services/scheduler_service.py)
-- Rutas: [backend/app/routes/scheduler_routes.py](backend/app/routes/scheduler_routes.py)
-- Integración: [backend/app/main.py](backend/app/main.py)
+Desde la raiz:
 
-## Endpoints del Scheduler
-
-### 1. Iniciar el scheduler
-```bash
-curl -X POST http://127.0.0.1:8000/scheduler/start
+```powershell
+python src/train.py --config configs/training_catboost.yml
 ```
-**Respuesta:**
+
+Este comando genera o actualiza:
+
+- `outputs/catboost/catboost_final.joblib`
+- `outputs/catboost/catboost_final_metrics.json`
+
+La API usa este artefacto por defecto. Si existe `outputs/catboost/catboost_final.joblib`, el backend lo carga antes que cualquier modelo alternativo.
+
+### Validar CatBoost y generar graficas
+
+```powershell
+python src/validate.py --model outputs/catboost/catboost_final.joblib --config configs/training_catboost.yml --output outputs/catboost/catboost_final_test_metrics.json --plots-dir outputs/catboost --prefix catboost_final
+```
+
+Este comando genera:
+
+- `outputs/catboost/catboost_final_test_metrics.json`
+- `outputs/catboost/catboost_final_confusion_matrix.png`
+- `outputs/catboost/catboost_final_roc_curve.png`
+- `outputs/catboost/catboost_final_pr_curve.png`
+
+### Metricas actuales de CatBoost
+
+Las metricas guardadas en `outputs/catboost/catboost_final_metrics.json` son:
+
+| Metrica test | Valor | Porcentaje |
+|---|---:|---:|
+| Accuracy | 0.8143 | 81.43% |
+| Balanced accuracy | 0.8032 | 80.32% |
+| F1 macro | 0.7981 | 79.81% |
+| F1 weighted | 0.8157 | 81.57% |
+| F1 no-show | 0.7410 | 74.10% |
+| Precision no-show | 0.7166 | 71.66% |
+| Recall no-show | 0.7671 | 76.71% |
+| ROC-AUC | 0.8940 | 89.40% |
+| PR-AUC | 0.8450 | 84.50% |
+
+Threshold optimizado: `0.5411`.
+
+### Mejoras porcentuales de CatBoost
+
+Comparado contra LightGBM en test:
+
+| Metrica | Mejora relativa |
+|---|---:|
+| Accuracy | +0.71% |
+| Balanced accuracy | +0.86% |
+| F1 macro | +0.81% |
+| F1 weighted | +0.71% |
+| F1 no-show | +1.17% |
+| Precision no-show | +0.98% |
+| Recall no-show | +1.37% |
+| ROC-AUC | +0.79% |
+| PR-AUC | +1.11% |
+
+Comparado contra XGBoost en test:
+
+| Metrica | Cambio relativo |
+|---|---:|
+| Accuracy | -0.04% |
+| Balanced accuracy | +1.38% |
+| F1 macro | +0.51% |
+| F1 weighted | +0.20% |
+| F1 no-show | +1.66% |
+| Precision no-show | -2.97% |
+| Recall no-show | +6.62% |
+| ROC-AUC | +0.47% |
+| PR-AUC | +1.04% |
+
+Comparado contra Stacking en test:
+
+| Metrica | Cambio relativo |
+|---|---:|
+| Accuracy | -0.87% |
+| Balanced accuracy | +0.59% |
+| F1 macro | -0.37% |
+| F1 weighted | -0.60% |
+| F1 no-show | +0.50% |
+| Precision no-show | -4.65% |
+| Recall no-show | +6.01% |
+| ROC-AUC | -0.02% |
+| PR-AUC | -0.13% |
+
+Conclusion operativa: CatBoost es el modelo principal porque mejora el **recall de no-show** frente a LightGBM, XGBoost y Stacking. Esto ayuda a detectar mas pacientes con riesgo de inasistencia. Stacking conserva una ligera ventaja en accuracy, precision y PR-AUC, pero CatBoost prioriza mejor la deteccion de no-shows.
+
+## Modelos alternativos
+
+Entrenar LightGBM:
+
+```powershell
+python src/train.py --config configs/training_lightgbm.yml
+```
+
+Validar LightGBM:
+
+```powershell
+python src/validate.py --model outputs/lightgbm/lightgbm_final.joblib --config configs/training_lightgbm.yml --output outputs/lightgbm/lightgbm_final_test_metrics.json --plots-dir outputs/lightgbm --prefix lightgbm_final
+```
+
+Entrenar XGBoost:
+
+```powershell
+python src/train.py --config configs/training_xgboost.yml
+```
+
+Validar XGBoost:
+
+```powershell
+python src/validate.py --model outputs/xgboost/xgboost_final.joblib --config configs/training_xgboost.yml --output outputs/xgboost/xgboost_final_test_metrics.json --plots-dir outputs/xgboost --prefix xgboost_final
+```
+
+Entrenar Stacking:
+
+```powershell
+python src/train.py --config configs/training_stack.yml
+```
+
+Validar Stacking:
+
+```powershell
+python src/validate.py --model outputs/stacking/stacking_final.joblib --config configs/training_stack.yml --output outputs/stacking/stacking_final_test_metrics.json --plots-dir outputs/stacking --prefix stacking_final
+```
+
+## Ejecutar backend
+
+Desde la raiz:
+
+```powershell
+python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Comprobar que la API esta viva:
+
+```powershell
+curl http://127.0.0.1:8000/health
+```
+
+Respuesta esperada:
+
 ```json
-{
-  "message": "Scheduler iniciado correctamente",
-  "status": {
-    "is_running": true,
-    "interval_minutes": 60,
-    "last_training_time": null,
-    "last_training_status": "No iniciado",
-    "next_job_time": "2026-06-19T15:30:00"
-  }
-}
+{"status":"ok"}
 ```
 
-### 2. Detener el scheduler
-```bash
-curl -X POST http://127.0.0.1:8000/scheduler/stop
+Notas:
+
+- `backend/app/services/prediction.py` carga primero `outputs/catboost/catboost_final.joblib`.
+- Si no existe CatBoost, intenta usar `outputs/stacking/stacking_final.joblib`.
+- Si tampoco existe, usa el fallback legacy `backend/models/model.pkl`.
+- El scheduler de reentrenamiento usa APScheduler. Si la dependencia falta, la API ya no se cae; el scheduler queda deshabilitado y las citas siguen funcionando.
+
+## Ejecutar frontend
+
+En otra terminal:
+
+```powershell
+cd frontend
+npm run dev
 ```
 
-### 3. Cambiar intervalo de reentrenamiento
-```bash
-# Reentrenar cada 30 minutos
+La aplicacion queda en:
+
+```text
+http://localhost:5173
+```
+
+Por defecto el frontend llama al backend en:
+
+```text
+http://localhost:8000
+```
+
+Si necesitas cambiar la URL de la API, crea `frontend/.env`:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+## Build del frontend
+
+```powershell
+cd frontend
+npm run build
+```
+
+Salida esperada:
+
+- `frontend/dist/index.html`
+- `frontend/dist/assets/...`
+
+Para previsualizar el build:
+
+```powershell
+cd frontend
+npm run preview
+```
+
+## Flujo completo recomendado
+
+Desde la raiz del proyecto:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pip install -r backend/requirements.txt
+python src/train.py --config configs/training_catboost.yml
+python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+En otra terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Abrir:
+
+```text
+http://localhost:5173
+```
+
+## Endpoints principales
+
+### Salud
+
+```powershell
+curl http://127.0.0.1:8000/health
+```
+
+### Citas
+
+Listar citas en la ventana por defecto de 8 dias:
+
+```powershell
+curl "http://127.0.0.1:8000/appointments/"
+```
+
+Listar citas proximos 15 dias:
+
+```powershell
+curl "http://127.0.0.1:8000/appointments/?days=15"
+```
+
+Listar todas las citas sin filtro de ventana:
+
+```powershell
+curl "http://127.0.0.1:8000/appointments/?days=0"
+```
+
+Buscar citas por medico:
+
+```powershell
+curl "http://127.0.0.1:8000/appointments/MED-014?days=15"
+```
+
+Crear cita:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/appointments/" -H "Content-Type: application/json" -d "{\"medic_id\":\"MED-014\",\"patient_id\":\"PAC-001\",\"hour\":10,\"day\":5,\"month\":6}"
+```
+
+Consultar detalle:
+
+```powershell
+curl "http://127.0.0.1:8000/appointments/info/1"
+```
+
+Eliminar cita:
+
+```powershell
+curl -X DELETE "http://127.0.0.1:8000/appointments/1"
+```
+
+Registrar resultado como Asistida:
+
+```powershell
+curl -X PATCH "http://127.0.0.1:8000/appointments/type/1?appointment_type=0"
+```
+
+Registrar resultado como No asistio:
+
+```powershell
+curl -X PATCH "http://127.0.0.1:8000/appointments/type/1?appointment_type=1"
+```
+
+Estados internos:
+
+- `0`: Asistida.
+- `1`: No asistio.
+- `2`: En espera.
+
+### Predicciones
+
+Prediccion individual de una cita:
+
+```powershell
+curl "http://127.0.0.1:8000/predictions/appointment/1"
+```
+
+Predicciones de citas en espera en los proximos 8 dias:
+
+```powershell
+curl "http://127.0.0.1:8000/predictions/waiting?days=8"
+```
+
+Predicciones de citas en espera para un medico y ventana de 15 dias:
+
+```powershell
+curl "http://127.0.0.1:8000/predictions/waiting?medic_id=MED-014&days=15"
+```
+
+Informacion del modelo activo:
+
+```powershell
+curl "http://127.0.0.1:8000/model-info"
+```
+
+### Scheduler
+
+Estado del scheduler:
+
+```powershell
+curl "http://127.0.0.1:8000/scheduler/status"
+```
+
+Iniciar scheduler:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/scheduler/start"
+```
+
+Detener scheduler:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/scheduler/stop"
+```
+
+Cambiar intervalo a 30 minutos:
+
+```powershell
 curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=30"
-
-# Reentrenar cada 2 horas (120 minutos)
-curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=120"
 ```
 
-### 4. Ejecutar reentrenamiento manual (ahora mismo)
-```bash
-curl -X POST http://127.0.0.1:8000/scheduler/manual-retrain
+Ejecutar reentrenamiento manual legacy:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/scheduler/manual-retrain"
 ```
 
-### 5. Obtener estado del scheduler
-```bash
-curl http://127.0.0.1:8000/scheduler/status
-```
-**Respuesta:**
-```json
-{
-  "is_running": true,
-  "scheduler_running": true,
-  "interval_minutes": 60,
-  "last_training_time": "2026-06-19T14:30:22.123456",
-  "last_training_status": "✓ Exitoso",
-  "next_job_time": "2026-06-19T15:30:00"
-}
-```
+Nota importante: el scheduler actual ejecuta `backend/models/train_pipeline.py`, que corresponde al pipeline legacy LightGBM/SMOTE. Para regenerar el modelo principal CatBoost se debe usar `python src/train.py --config configs/training_catboost.yml`.
 
-## Logs del Scheduler
+## Ventanas de fechas en la app
 
-El scheduler imprime logs detallados en la consola. Busca mensajes como:
+El calendario filtra citas por una ventana hacia adelante desde la fecha actual:
 
-```
-============================================================
-🔄 Iniciando reentrenamiento automático del modelo...
-============================================================
-✓ Reentrenamiento completado exitosamente
-Output:
-Cleaned data shape: (10000, 15)
-Accuracy: 0.87
-F1-Score: 0.85
-...
-============================================================
-```
+- `days=8`: proximos 8 dias.
+- `days=15`: proximos 15 dias.
+- `days=30`: proximo mes.
+- `days=0`: sin filtro por ventana.
 
-Si hay error:
-```
-✗ Reentrenamiento falló con código 1
-Error output: [mensajes de error]
+La app usa el calendario 2026 para construir fechas desde `day`, `month` y `hour`.
+
+## Estados visuales del calendario
+
+- Asistira: azul.
+- No asistira: rojo.
+- Asistida: verde.
+- No asistio: naranja.
+- Sin prediccion: gris.
+
+## Reentrenamiento y actualizacion de datos
+
+Cuando una cita en espera se cierra como `Asistida` o `No asistio`, el backend llama a `backend/app/services/training_service.py`. El flujo esperado es:
+
+1. Buscar el ultimo registro historico del paciente.
+2. Crear una nueva fila en `data/raw/database_non-shows.xlsx`.
+3. Actualizar contadores de asistencia o inasistencia.
+4. Ejecutar reentrenamiento legacy desde `backend/models/train_pipeline.py`.
+
+Para mantener CatBoost como modelo principal despues de registrar nuevos datos, ejecutar manualmente:
+
+```powershell
+python src/train.py --config configs/training_catboost.yml
 ```
 
-## Configuración Recomendada
+Luego reiniciar el backend para que cargue el nuevo `outputs/catboost/catboost_final.joblib`.
 
-**Para desarrollo (frecuente):**
-```bash
-# Reentrenar cada 10 minutos
-curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=10"
+## Problemas comunes
+
+### Error: `Failed to fetch`
+
+Normalmente significa que el frontend no pudo llegar al backend.
+
+Revisar:
+
+```powershell
+curl http://127.0.0.1:8000/health
 ```
 
-**Para producción (conservador):**
-```bash
-# Reentrenar cada 4 horas
-curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=240"
+Si no responde, iniciar Uvicorn:
+
+```powershell
+python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-## Dependencias Adicionales
+### Error: `No module named 'catboost'`
 
-Asegúrate de que `backend/requirements.txt` incluya:
+Instalar dependencias:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pip install -r backend/requirements.txt
 ```
-apscheduler>=3.10.0
+
+### Error: `No module named 'apscheduler'`
+
+Instalar dependencias del backend:
+
+```powershell
+python -m pip install -r backend/requirements.txt
 ```
 
-Está incluida en la lista de dependencias del proyecto.
+### No existe `outputs/catboost/catboost_final.joblib`
 
----
+Entrenar el modelo principal:
 
-**Siguientes mejoras sugeridas**
-- Añadir validación en frontend para los campos del formulario (horas/fechas).  
-- Formatear `created_at` en el modal (usar `Intl.DateTimeFormat`).  
-- Añadir edición/eliminación desde el modal.  
-- Persistencia avanzada: usar migraciones reales (Alembic) en lugar de alteraciones ad-hoc.
+```powershell
+python src/train.py --config configs/training_catboost.yml
+```
 
-Si quieres, actualizo este fichero con más ejemplos o añado una sección "Despliegue" para producción.
+### Cambie el modelo y la API sigue usando el anterior
+
+Reiniciar Uvicorn. El servicio carga los artefactos al iniciar.
+
+## Archivos clave
+
+- `configs/training_catboost.yml`: configuracion del entrenamiento principal.
+- `models/catboost/config.yml`: hiperparametros base de CatBoost.
+- `src/train.py`: entrenamiento de modelos finales.
+- `src/validate.py`: validacion y graficas.
+- `outputs/catboost/catboost_final.joblib`: modelo principal usado por la API.
+- `outputs/catboost/catboost_final_metrics.json`: metricas de CatBoost.
+- `backend/app/services/prediction.py`: carga del modelo y predicciones.
+- `backend/app/routes/appointment_routes.py`: endpoints de citas.
+- `backend/app/routes/prediction_routes.py`: endpoints de prediccion.
+- `frontend/src/App.jsx`: interfaz principal.
+- `frontend/packages/shared/src/appointmentStatus.js`: estados y colores.

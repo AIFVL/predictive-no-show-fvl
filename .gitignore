@@ -25,6 +25,7 @@ pip-wheel-metadata/
 *.egg-info
 build/
 dist/
+assets/
 
 # notebooks
 .ipynb_checkpoints/

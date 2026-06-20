@@ -8,6 +8,7 @@ scikit-learn
 xgboost
 imbalanced-learn
 lightgbm
+catboost
 python-dotenv
 openpyxl
 sqlalchemy
