@@ -166,7 +166,7 @@ python src/validate.py --model outputs/stacking/stacking_final.joblib --config c
 Desde la raiz:
 
 ```powershell
-python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Comprobar que la API esta viva:
@@ -187,6 +187,50 @@ Notas:
 - Si no existe CatBoost, intenta usar `outputs/stacking/stacking_final.joblib`.
 - Si tampoco existe, usa el fallback legacy `backend/models/model.pkl`.
 - El scheduler de reentrenamiento usa APScheduler. Si la dependencia falta, la API ya no se cae; el scheduler queda deshabilitado y las citas siguen funcionando.
+
+## Ejecutar con Docker (Recomendado para producción)
+
+### Requisitos
+- Docker Desktop (https://www.docker.com/products/docker-desktop)
+- Docker Compose (incluido)
+
+### Uso rápido
+
+Desde la raiz:
+
+```powershell
+docker-compose up --build
+```
+
+Esto:
+- Construye e inicia backend en http://localhost:8000
+- Construye e inicia frontend en http://localhost:5173
+- Crea red privada entre servicios
+
+### Comandos útiles
+
+```powershell
+# Detener
+docker-compose down
+
+# Ver logs
+docker-compose logs -f
+
+# Reconstruir sin cache
+docker-compose build --no-cache
+
+# Ejecutar solo backend
+docker-compose up backend
+
+# Ejecutar solo frontend
+docker-compose up frontend
+```
+
+### Ventajas
+- Ambiente consistente (dev/staging/prod)
+- Sin dependencias locales
+- Componentes aislados y escalables
+- Facilita deployment
 
 ## Ejecutar frontend
 
@@ -387,7 +431,13 @@ Ejecutar reentrenamiento manual legacy:
 curl -X POST "http://127.0.0.1:8000/scheduler/manual-retrain"
 ```
 
-Nota importante: el scheduler actual ejecuta `backend/models/train_pipeline.py`, que corresponde al pipeline legacy LightGBM/SMOTE. Para regenerar el modelo principal CatBoost se debe usar `python src/train.py --config configs/training_catboost.yml`.
+Recargar el modelo desde disco (sin reiniciar):
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/scheduler/reload-model"
+```
+
+Nota importante: el scheduler actual ejecuta `backend/models/train_pipeline.py`, que corresponde al pipeline legacy LightGBM/SMOTE. Después de cada reentrenamiento automático exitoso, el modelo se recarga dinámicamente sin necesidad de reiniciar el servidor. Para regenerar el modelo principal CatBoost se debe usar `python src/train.py --config configs/training_catboost.yml`.
 
 ## Ventanas de fechas en la app
 
@@ -417,13 +467,29 @@ Cuando una cita en espera se cierra como `Asistida` o `No asistio`, el backend l
 3. Actualizar contadores de asistencia o inasistencia.
 4. Ejecutar reentrenamiento legacy desde `backend/models/train_pipeline.py`.
 
-Para mantener CatBoost como modelo principal despues de registrar nuevos datos, ejecutar manualmente:
+### Recarga dinámica del modelo
+
+Después de cada reentrenamiento automático exitoso, el modelo se recarga dinámicamente:
+
+1. El scheduler ejecuta `train_pipeline.py`
+2. Se genera nuevo `/app/backend/models/model.pkl`
+3. Se llama automáticamente a `reload_model()`
+4. Las variables globales se resetean y se cargan desde disco
+5. **Próximas predicciones usan el nuevo modelo sin reiniciar el servidor**
+
+Para mantener CatBoost como modelo principal después de registrar nuevos datos, ejecutar manualmente:
 
 ```powershell
 python src/train.py --config configs/training_catboost.yml
 ```
 
-Luego reiniciar el backend para que cargue el nuevo `outputs/catboost/catboost_final.joblib`.
+Luego usar el endpoint de recarga (o esperar al siguiente ciclo del scheduler):
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/scheduler/reload-model"
+```
+
+O simplemente reiniciar el backend para que cargue el nuevo `outputs/catboost/catboost_final.joblib`.
 
 ## Problemas comunes
 

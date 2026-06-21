@@ -526,3 +526,28 @@ def info() -> Dict[str, Any]:
         "metrics_path": str(METRICS_PATH),
         "metrics": METRICS,
     }
+
+
+def reload_model() -> Dict[str, Any]:
+    """
+    Recarga el modelo desde disco. Se usa después del reentrenamiento
+    automático para que el API use el nuevo modelo sin reiniciar.
+    
+    Retorna información del modelo recargado.
+    """
+    global _MODEL, _SCALER, METRICS
+    
+    # Reset variables globales
+    _MODEL = None
+    _SCALER = None
+    METRICS.clear()
+    
+    # Fuerza recarga
+    _ensure_loaded()
+    
+    return {
+        "status": "model_reloaded",
+        "model_version": METRICS.get("model_version"),
+        "model_path": str(MODEL_PATH),
+        "metrics": METRICS,
+    }

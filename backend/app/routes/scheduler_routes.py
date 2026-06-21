@@ -83,3 +83,25 @@ def update_interval(minutes: int):
 def get_scheduler_status():
     """Obtiene el estado actual del scheduler."""
     return model_scheduler.get_status()
+
+
+@scheduler_routes.post("/reload-model")
+def reload_model_endpoint():
+    """Endpoint manual para recargar el modelo desde disco (debug/testing).
+    
+    Se usa después de un reentrenamiento para que el API use el nuevo modelo
+    sin necesidad de reiniciar el servidor.
+    """
+    try:
+        from ..services.prediction import reload_model
+        reload_info = reload_model()
+        return {
+            "status": "success",
+            "message": "Model reloaded from disk",
+            "reload_info": reload_info,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reload model: {str(e)}"
+        )
