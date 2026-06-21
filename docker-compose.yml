@@ -1,0 +1,53 @@
+version: '3.9'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: predictive-no-show-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./backend/appointments.db:/app/backend/appointments.db
+    networks:
+      - predictive-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Frontend Web
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: predictive-no-show-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - predictive-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  predictive-network:
+    driver: bridge
+
+volumes:
+  data:
+  outputs:

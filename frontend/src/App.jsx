@@ -31,7 +31,6 @@ import {
   formatShapValue,
   getAdjustedProbabilitySummary,
   getPredictionHeadline,
-  getPredictionSourceLabel,
   getRiskLevel,
   getRiskSummary,
   getToneClass,
@@ -68,6 +67,8 @@ function App() {
     activeMedicFilter,
     dateWindow,
     setDateWindow,
+    predictionReferenceDate,
+    setPredictionReferenceDate,
     loading,
     fetchAppointments,
     fetchAppointmentDetail,
@@ -88,6 +89,15 @@ function App() {
   const [form, setForm] = useState(emptyAppointmentForm)
   const [formErrors, setFormErrors] = useState({})
   const calendarRef = useRef(null)
+
+  const handleCalendarDatesSet = (info) => {
+    const visibleStart = info.view?.currentStart || info.start
+    if (!visibleStart) return
+    const nextReference = visibleStart.toISOString().slice(0, 10)
+    setPredictionReferenceDate((current) => (
+      current === nextReference ? current : nextReference
+    ))
+  }
 
   const handleSearch = async () => {
     const medicId = String(form.search ?? '').trim()
@@ -166,10 +176,19 @@ function App() {
   }
 
   const handleChangeAppointmentType = async (appointmentId, newType) => {
+    const previousSelectedAppt = selectedAppt
+
+    setSelectedAppt((current) => (
+      current && String(current.id) === String(appointmentId)
+        ? { ...current, appointment_type: Number(newType) }
+        : current
+    ))
+
     try {
       const updated = await updateAppointmentType(appointmentId, newType)
       setSelectedAppt(updated)
     } catch (error) {
+      setSelectedAppt(previousSelectedAppt)
       console.error('Error updating appointment type', error)
       alert(`Error actualizando la cita: ${error.message}`)
     }
@@ -236,14 +255,14 @@ function App() {
 
     return [
       {
-        label: 'Citas en ventana',
+        label: 'Citas del año',
         value: enrichedAppointments.length,
-        caption: activeMedicFilter ? `Médico ${activeMedicFilter}` : `Próximos ${dateWindow} días`,
+        caption: activeMedicFilter ? `Médico ${activeMedicFilter}` : 'Agenda anual 2026',
       },
       {
         label: 'Programadas',
         value: scheduled.length,
-        caption: `${summary?.analyzed ?? 0} con predicción activa`,
+        caption: `${summary?.analyzed ?? 0} analizadas desde ${predictionReferenceDate || 'hoy'}`,
       },
       {
         label: 'Predicción: no asistirá',
@@ -256,7 +275,7 @@ function App() {
         caption: `${willAttend.length} con predicción asistirá`,
       },
     ]
-  }, [activeMedicFilter, dateWindow, enrichedAppointments, summary])
+  }, [activeMedicFilter, enrichedAppointments, predictionReferenceDate, summary])
 
   const priorityList = useMemo(() => (
     [...filteredAppointments]
@@ -308,8 +327,8 @@ function App() {
             <div className="hero-title-block">
               <h1>Predicción de inasistencia de citas para medicina interna</h1>
               <p className="hero-copy">
-                El tablero carga citas desde hoy en una ventana configurable (8, 15 o 30 días),
-                predice inasistencias solo en el backend y clasifica cada cita como
+                El tablero carga las citas de todo 2026, calcula predicciones por mes visible
+                en una ventana configurable (8, 15 o 30 días) y clasifica cada cita como
                 <strong> Asistirá</strong>, <strong>No asistirá</strong>, <strong>Asistida</strong> o <strong>No asistió</strong>.
               </p>
             </div>
@@ -452,6 +471,7 @@ function App() {
                 eventTimeFormat={{ hour: '2-digit', minute: '2-digit', meridiem: false }}
                 dayMaxEvents={3}
                 buttonText={{ today: 'Hoy', month: 'Mes', week: 'Semana', day: 'Día' }}
+                datesSet={handleCalendarDatesSet}
               />
             </div>
           </div>
@@ -485,7 +505,6 @@ function App() {
                       <strong>{appointment.patient_id}</strong>
                       <span>{appointment.dateLabel} · {appointment.timeLabel}</span>
                       <span>{getPredictionHeadline(appointment.prediction).long}</span>
-                      <span>{getPredictionSourceLabel(appointment.prediction)}</span>
                     </div>
                     <span className={getToneClass(appointment.risk.tone)}>{appointment.risk.label}</span>
                   </button>
@@ -496,11 +515,11 @@ function App() {
             <div className="insight-card">
               <div className="section-head">
                 <h3>Resumen predictivo</h3>
-                <span>Ventana {dateWindow} días</span>
+                <span>{dateWindow} días desde {predictionReferenceDate || 'hoy'}</span>
               </div>
               <div className="model-summary">
                 <strong>{summary?.analyzed ?? 0} citas analizadas</strong>
-                <p>El backend ejecuta las predicciones en lote solo para citas en espera dentro de la ventana seleccionada.</p>
+                <p>El backend ejecuta predicciones para citas en espera desde el mes visible y la ventana seleccionada.</p>
                 <p>Las citas ya cerradas como Asistida o No asistió no se vuelven a predecir.</p>
               </div>
             </div>
@@ -575,10 +594,6 @@ function App() {
                           <span>Asistirá: {formatPercent(selectedProbability.probAttend)}</span>
                           <span>No asistirá: {formatPercent(selectedProbability.probNoShow)}</span>
                         </div>
-                      </div>
-                      <div className="detail-box">
-                        <span>Origen de la predicción</span>
-                        <strong>{getPredictionSourceLabel(selectedPrediction)}</strong>
                       </div>
                       <div className="detail-box detail-box-wide">
                         <span>Recomendación operativa</span>

@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.local
+.vscode/
+.idea/
+*.pyc
+__pycache__/
+node_modules/
+dist/
+build/
+*.db
+.DS_Store
+README.md
+LICENSE

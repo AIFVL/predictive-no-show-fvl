@@ -27,3 +27,12 @@ export const isWithinForwardWindow = (appointment, days, reference = new Date())
   const appt = new Date(CALENDAR_YEAR, (appointment.month || 1) - 1, appointment.day || 1)
   return appt >= ref && appt <= end
 }
+
+export const isWithinOperationalWindow = (appointment, days, reference = new Date()) => {
+  if (!days) return true
+  const ref = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
+  const end = new Date(ref)
+  end.setDate(end.getDate() + Number(days))
+  const appt = new Date(CALENDAR_YEAR, (appointment.month || 1) - 1, appointment.day || 1)
+  return appt <= end
+}

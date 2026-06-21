@@ -42,6 +42,22 @@ def is_within_forward_window(
     return ref <= appt_date <= end
 
 
+def is_within_operational_window(
+    appointment,
+    days: int | None,
+    *,
+    reference: date | None = None,
+) -> bool:
+    """True for past appointments plus appointments up to reference + days."""
+    if days is None:
+        return True
+
+    ref = reference or date.today()
+    appt_date = appointment_to_date(appointment)
+    end = ref + timedelta(days=int(days))
+    return appt_date <= end
+
+
 T = TypeVar("T")
 
 
@@ -55,4 +71,17 @@ def filter_by_forward_window(
         appt
         for appt in appointments
         if is_within_forward_window(appt, days, reference=reference)
+    ]
+
+
+def filter_by_operational_window(
+    appointments: Sequence[T],
+    days: int | None,
+    *,
+    reference: date | None = None,
+) -> list[T]:
+    return [
+        appt
+        for appt in appointments
+        if is_within_operational_window(appt, days, reference=reference)
     ]

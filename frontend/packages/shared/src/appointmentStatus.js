@@ -1,4 +1,3 @@
-/** Stored workflow states in the database (appointment_type). */
 export const APPOINTMENT_TYPE = {
   ASISTIDA: 0,
   NO_ASISTIO: 1,
