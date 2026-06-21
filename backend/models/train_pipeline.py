@@ -2,8 +2,8 @@
 
 This module mirrors the preprocessing and modeling steps developed in
 notebooks/02_Limpieza.ipynb. It loads the raw dataset, applies the
-normalization and cleaning rules, trains a sklearn pipeline, reports
-metrics, and serializes the fitted pipeline for inference.
+normalization and cleaning rules, trains a CatBoost sklearn-compatible
+pipeline, reports metrics, and serializes the fitted pipeline for inference.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-import lightgbm as lgb
+from catboost import CatBoostClassifier
 
 
 # ---------------------------------------------------------------------------
@@ -39,31 +39,41 @@ import lightgbm as lgb
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RAW_DATA_PATH = REPO_ROOT / "data" / "raw" / "database_non-shows.xlsx"
-RAW_DATA_PATH = Path(os.environ.get("RAW_DATA_PATH", str(DEFAULT_RAW_DATA_PATH)))
+DEFAULT_RAW_DATA_PATHS = [
+    REPO_ROOT / "data" / "raw" / "database_non-shows.csv",
+    REPO_ROOT / "data" / "raw" / "database_non-shows.xlsx",
+]
+RAW_DATA_PATH = os.environ.get("RAW_DATA_PATH")
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
 MODEL_DIR = Path(__file__).resolve().parent
 MODEL_ARTIFACT_PATH = MODEL_DIR / "model.pkl"
 METRICS_PATH = MODEL_DIR / "metrics.json"
+CATBOOST_OUTPUT_DIR = REPO_ROOT / "outputs" / "catboost"
+CATBOOST_MODEL_ARTIFACT_PATH = CATBOOST_OUTPUT_DIR / "catboost_final.joblib"
+CATBOOST_METRICS_PATH = CATBOOST_OUTPUT_DIR / "catboost_final_metrics.json"
 
 TARGET_COLUMN = "Appointment Type"
 MAX_CREATION_ASSIGNMENT_INTERVAL = 365
 
-# Best-performing config taken from notebooks/05_Stacking_SMOTE_Correcto.ipynb
-LGBM_BEST_PARAMS: Dict[str, Any] = {
-    "objective": "binary",
+# CatBoost is the production training model. Keep these params aligned with
+# the tuned CatBoost config used by src/train.py.
+CATBOOST_BEST_PARAMS: Dict[str, Any] = {
+    "loss_function": "Logloss",
+    "eval_metric": "F1",
+    "random_seed": 42,
+    "depth": 6,
+    "learning_rate": 0.05,
+    "iterations": 600,
+    "l2_leaf_reg": 3.0,
+    "auto_class_weights": "Balanced",
+    "verbose": False,
+    "allow_writing_files": False,
+}
+
+SMOTE_CONFIG: Dict[str, Any] = {
+    "enabled": False,
     "random_state": 42,
-    "n_jobs": -1,
-    "verbose": -1,
-    "subsample": 0.8,
-    "reg_lambda": 0.5,
-    "reg_alpha": 0.3,
-    "num_leaves": 63,
-    "n_estimators": 600,
-    "min_child_samples": 10,
-    "max_depth": 5,
-    "learning_rate": 0.08,
-    "colsample_bytree": 0.7,
+    "k_neighbors": 5,
 }
 
 RENAME_MAP = {
@@ -233,26 +243,44 @@ DOUBLE_VERIFICATION_CONFIG: Dict[str, Any] = {
 # Data loading and cleaning
 # ---------------------------------------------------------------------------
 
+def _default_raw_data_path() -> Path:
+    for candidate in DEFAULT_RAW_DATA_PATHS:
+        if candidate.exists():
+            return candidate
+    return DEFAULT_RAW_DATA_PATHS[0]
+
+
 def load_raw_data(path: Path | None = None) -> pd.DataFrame:
-    """Load the raw appointment dataset from Excel.
+    """Load the raw appointment dataset from CSV or Excel.
 
     The path can be provided explicitly (CLI), via the RAW_DATA_PATH env var,
     or will fall back to the default repo location.
     """
 
-    candidate = Path(path) if path is not None else RAW_DATA_PATH
+    if path is not None:
+        candidate = Path(path)
+    elif RAW_DATA_PATH:
+        candidate = Path(RAW_DATA_PATH)
+    else:
+        candidate = _default_raw_data_path()
 
     if not candidate.exists():
         raise FileNotFoundError(
-            "Raw dataset not found. Expected an Excel file at: "
+            "Raw dataset not found. Expected a CSV or Excel file at: "
             f"{candidate!s}. "
             "\n\nSoluciones:\n"
-            "- Copia el Excel a: data/raw/database_non-shows.xlsx\n"
-            "- O ejecuta: python backend/models/train_pipeline.py --raw-data \"C:/ruta/tu_archivo.xlsx\"\n"
-            "- O define env var RAW_DATA_PATH con la ruta del Excel."
+            "- Copia el CSV a: data/raw/database_non-shows.csv\n"
+            "- O copia el Excel a: data/raw/database_non-shows.xlsx\n"
+            "- O ejecuta: python backend/models/train_pipeline.py --raw-data \"C:/ruta/tu_archivo.csv\"\n"
+            "- O define env var RAW_DATA_PATH con la ruta del dataset."
         )
 
-    return pd.read_excel(candidate)
+    suffix = candidate.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(candidate)
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(candidate)
+    raise ValueError(f"Formato no soportado para dataset raw: {candidate.suffix}")
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -417,18 +445,15 @@ def build_pipeline(config: FeatureConfig, model: Any | None = None) -> Pipeline:
         remainder="drop",
     )
 
-    estimator = model or lgb.LGBMClassifier(**LGBM_BEST_PARAMS)
+    estimator = model or CatBoostClassifier(**CATBOOST_BEST_PARAMS)
 
-    # Important: SMOTE must only run during fitting on the training split.
-    # Using imblearn's Pipeline ensures the sampler is applied during fit,
-    # and is effectively a no-op during inference.
-    return ImbPipeline(
-        steps=[
-            ("preprocess", preprocessor),
-            ("smote", SMOTE(random_state=42, k_neighbors=5)),
-            ("model", estimator),
-        ]
-    )
+    steps = [("preprocess", preprocessor)]
+    if SMOTE_CONFIG.get("enabled", False):
+        smote_params = {k: v for k, v in SMOTE_CONFIG.items() if k != "enabled"}
+        steps.append(("smote", SMOTE(**smote_params)))
+    steps.append(("model", estimator))
+
+    return ImbPipeline(steps=steps)
 
 
 def tune_threshold_f1_macro(y_true: pd.Series, proba: pd.Series) -> float:
@@ -516,13 +541,17 @@ def train_and_serialize(model: Any | None = None, *, raw_data_path: Path | None 
     joblib.dump(pipeline, MODEL_ARTIFACT_PATH)
     print(f"Serialized trained pipeline to {MODEL_ARTIFACT_PATH!s}.")
 
+    CATBOOST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(pipeline, CATBOOST_MODEL_ARTIFACT_PATH)
+    print(f"Serialized CatBoost production artifact to {CATBOOST_MODEL_ARTIFACT_PATH!s}.")
+
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     processed_path = PROCESSED_DIR / "df_limpio.csv"
     df_ready.to_csv(processed_path, index=False)
     print(f"Saved cleaned dataset snapshot to {processed_path!s}.")
 
     metrics: Dict[str, Any] = {
-        "model_version": "lightgbm_smote",
+        "model_version": "catboost",
         "accuracy": accuracy,
         "roc_auc": roc_auc,
         "threshold": float(best_threshold),
@@ -531,14 +560,18 @@ def train_and_serialize(model: Any | None = None, *, raw_data_path: Path | None 
         "target_distribution": y.value_counts(normalize=True).to_dict(),
         "classification_report": report,
         "model_params": {
-            "lightgbm": dict(LGBM_BEST_PARAMS),
-            "smote": {"random_state": 42, "k_neighbors": 5},
+            "catboost": dict(CATBOOST_BEST_PARAMS),
+            "smote": dict(SMOTE_CONFIG),
         },
     }
 
     with METRICS_PATH.open("w", encoding="utf-8") as fp:
         json.dump(metrics, fp, indent=2, default=float)
     print(f"Stored metrics report at {METRICS_PATH!s}.")
+
+    with CATBOOST_METRICS_PATH.open("w", encoding="utf-8") as fp:
+        json.dump(metrics, fp, indent=2, default=float)
+    print(f"Stored CatBoost metrics report at {CATBOOST_METRICS_PATH!s}.")
 
     return metrics
 
@@ -551,7 +584,7 @@ def main() -> None:
         "--raw-data",
         dest="raw_data",
         default=None,
-        help="Path to the raw Excel dataset (overrides default data/raw/database_non-shows.xlsx)",
+        help="Path to the raw CSV/Excel dataset (overrides data/raw/database_non-shows.csv)",
     )
     args = parser.parse_args()
 

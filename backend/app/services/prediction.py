@@ -165,6 +165,10 @@ def _prepare_bundle_input(features: Dict[str, Any], feature_columns: list[str]) 
             row[col] = raw.get(col, 0)
             continue
 
+        if col in categorical_candidates:
+            row[col] = str(raw.get(col, "0"))
+            continue
+
         matched = False
         for base_name in categorical_candidates:
             prefix = f"{base_name}_"
@@ -535,12 +539,13 @@ def reload_model() -> Dict[str, Any]:
     
     Retorna información del modelo recargado.
     """
-    global _MODEL, _SCALER, METRICS
+    global _MODEL, _SCALER, METRICS, MODEL_PATH, METRICS_PATH
     
     # Reset variables globales
     _MODEL = None
     _SCALER = None
     METRICS.clear()
+    MODEL_PATH, METRICS_PATH = _resolve_artifact_paths()
     
     # Fuerza recarga
     _ensure_loaded()

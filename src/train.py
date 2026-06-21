@@ -117,10 +117,27 @@ def compute_metrics(y_true, y_pred, y_prob) -> dict:
     }
 
 
+def build_search_scorer(scoring: str):
+    if scoring == "average_precision":
+        return "average_precision"
+    if scoring == "roc_auc":
+        return "roc_auc"
+    if scoring == "f1_macro":
+        return make_scorer(f1_score, average="macro", zero_division=0)
+    if scoring == "f1_recall":
+        def f1_recall_score(y_true, y_pred):
+            f1_no_show = f1_score(y_true, y_pred, average="binary", zero_division=0)
+            recall = recall_score(y_true, y_pred, zero_division=0)
+            return 0.6 * f1_no_show + 0.4 * recall
+
+        return make_scorer(f1_recall_score)
+    return make_scorer(f1_score, average="binary", zero_division=0)
+
+
 def main(config_path: str) -> None:
     cfg = load_yaml(config_path)
     model_cfg = load_yaml(cfg["model"]["config_path"])
-    module_path = cfg["model"].get("module", "models.lightgbm.model")
+    module_path = cfg["model"].get("module", "models.catboost.model")
     model_module = importlib.import_module(module_path)
     build_pipeline = getattr(model_module, "build_pipeline")
 
@@ -194,8 +211,11 @@ def main(config_path: str) -> None:
     if cat_features is not None:
         fit_params = {"clf__cat_features": cat_features}
 
+    best_params = None
+    best_score = None
     if search_cfg.get("enabled", False):
-        scorer = make_scorer(f1_score, average="binary", zero_division=0)
+        scoring_name = search_cfg.get("scoring", "f1_no_show")
+        scorer = build_search_scorer(scoring_name)
         search = RandomizedSearchCV(
             pipeline,
             search_cfg.get("params", {}),
@@ -208,8 +228,10 @@ def main(config_path: str) -> None:
         )
         search.fit(X_tr, y_tr, **fit_params)
         pipeline = search.best_estimator_
-        print("Mejores params (f1_no_show CV):", search.best_params_)
-        print("Mejor score CV (f1_no_show):", round(search.best_score_, 4))
+        best_params = search.best_params_
+        best_score = search.best_score_
+        print(f"Mejores params ({scoring_name} CV):", best_params)
+        print(f"Mejor score CV ({scoring_name}):", round(best_score, 4))
     else:
         pipeline.fit(X_tr, y_tr, **fit_params)
 
@@ -253,6 +275,12 @@ def main(config_path: str) -> None:
             {
                 "threshold": th,
                 "score_val": score_val,
+                "search": {
+                    "enabled": bool(search_cfg.get("enabled", False)),
+                    "scoring": search_cfg.get("scoring", "f1_no_show"),
+                    "best_params": best_params,
+                    "best_score": best_score,
+                },
                 "val": metrics_val,
                 "test": metrics_test,
             },
@@ -267,10 +295,10 @@ def main(config_path: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Entrenar LightGBM + SMOTE")
+    parser = argparse.ArgumentParser(description="Entrenar CatBoost para prediccion de no-show")
     parser.add_argument(
         "--config",
-        default="configs/training.yml",
+        default="configs/training_catboost.yml",
         help="Ruta al archivo training.yml",
     )
     args = parser.parse_args()

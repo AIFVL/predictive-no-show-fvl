@@ -425,7 +425,7 @@ Cambiar intervalo a 30 minutos:
 curl -X PUT "http://127.0.0.1:8000/scheduler/interval?minutes=30"
 ```
 
-Ejecutar reentrenamiento manual legacy:
+Ejecutar reentrenamiento manual de CatBoost:
 
 ```powershell
 curl -X POST "http://127.0.0.1:8000/scheduler/manual-retrain"
@@ -437,7 +437,7 @@ Recargar el modelo desde disco (sin reiniciar):
 curl -X POST "http://127.0.0.1:8000/scheduler/reload-model"
 ```
 
-Nota importante: el scheduler actual ejecuta `backend/models/train_pipeline.py`, que corresponde al pipeline legacy LightGBM/SMOTE. Después de cada reentrenamiento automático exitoso, el modelo se recarga dinámicamente sin necesidad de reiniciar el servidor. Para regenerar el modelo principal CatBoost se debe usar `python src/train.py --config configs/training_catboost.yml`.
+Nota importante: el scheduler actual ejecuta `backend/models/train_pipeline.py`, que ahora entrena CatBoost y actualiza `outputs/catboost/catboost_final.joblib`. Después de cada reentrenamiento automático exitoso, el modelo se recarga dinámicamente sin necesidad de reiniciar el servidor. También puedes regenerar el modelo principal manualmente con `python src/train.py --config configs/training_catboost.yml`.
 
 ## Ventanas de fechas en la app
 
@@ -465,19 +465,19 @@ Cuando una cita en espera se cierra como `Asistida` o `No asistio`, el backend l
 1. Buscar el ultimo registro historico del paciente.
 2. Crear una nueva fila en `data/raw/database_non-shows.xlsx`.
 3. Actualizar contadores de asistencia o inasistencia.
-4. Ejecutar reentrenamiento legacy desde `backend/models/train_pipeline.py`.
+4. Ejecutar reentrenamiento de CatBoost desde `backend/models/train_pipeline.py`.
 
 ### Recarga dinámica del modelo
 
 Después de cada reentrenamiento automático exitoso, el modelo se recarga dinámicamente:
 
 1. El scheduler ejecuta `train_pipeline.py`
-2. Se genera nuevo `/app/backend/models/model.pkl`
+2. Se generan nuevos artefactos en `/app/outputs/catboost/catboost_final.joblib` y `/app/backend/models/model.pkl`
 3. Se llama automáticamente a `reload_model()`
 4. Las variables globales se resetean y se cargan desde disco
 5. **Próximas predicciones usan el nuevo modelo sin reiniciar el servidor**
 
-Para mantener CatBoost como modelo principal después de registrar nuevos datos, ejecutar manualmente:
+Para regenerar CatBoost desde el pipeline configurable, ejecutar manualmente:
 
 ```powershell
 python src/train.py --config configs/training_catboost.yml

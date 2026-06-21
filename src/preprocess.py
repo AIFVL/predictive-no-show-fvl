@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import pandas as pd
 
@@ -41,22 +42,52 @@ def clean_raw(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def main() -> None:
+def resolve_path(path: str | Path, repo_root: Path) -> Path:
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    return repo_root / path
+
+
+def load_raw(path: Path) -> pd.DataFrame:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(path)
+    raise ValueError(f"Formato no soportado para dataset raw: {path.suffix}")
+
+
+def main(input_path: str | None = None, output_path: str | None = None) -> None:
     repo_root = find_repo_root()
-    raw_path = repo_root / "data" / "raw" / "database_non-shows.xlsx"
+    raw_path = resolve_path(
+        input_path or "data/raw/database_non-shows.csv",
+        repo_root,
+    )
     if not raw_path.exists():
         raise FileNotFoundError(f"No se encontro el dataset en: {raw_path}")
 
-    df = pd.read_excel(raw_path)
+    df = load_raw(raw_path)
     df = clean_raw(df)
 
-    processed_dir = repo_root / "data" / "processed"
-    processed_dir.mkdir(parents=True, exist_ok=True)
-    output_path = processed_dir / "df_limpio.csv"
+    output = resolve_path(output_path or "data/processed/df_limpio.csv", repo_root)
+    output.parent.mkdir(parents=True, exist_ok=True)
 
-    df.to_csv(output_path, index=False)
-    print(f"Dataset limpio guardado en: {output_path}")
+    df.to_csv(output, index=False)
+    print(f"Dataset limpio guardado en: {output}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Procesar dataset raw a data/processed/df_limpio.csv")
+    parser.add_argument(
+        "--input",
+        default="data/raw/database_non-shows.csv",
+        help="Ruta del dataset raw (.csv, .xlsx o .xls)",
+    )
+    parser.add_argument(
+        "--output",
+        default="data/processed/df_limpio.csv",
+        help="Ruta del CSV procesado",
+    )
+    args = parser.parse_args()
+    main(args.input, args.output)
