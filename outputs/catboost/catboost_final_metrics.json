@@ -1,28 +1,196 @@
 {
-  "threshold": 0.5411371237458195,
-  "score_val": 0.7651741293532338,
-  "val": {
-    "accuracy": 0.830703012912482,
-    "balanced_accuracy": 0.8227461992559097,
-    "f1_macro": 0.8164064701729714,
-    "f1_weighted": 0.8321730944281129,
-    "f1_no_show": 0.7651741293532338,
-    "precision_no_show": 0.7358851674641148,
-    "recall_no_show": 0.7968911917098446,
-    "cohen_kappa": 0.6331405090004822,
-    "roc_auc": 0.9079050361102664,
-    "pr_auc": 0.8618034133358563
+  "model_version": "catboost",
+  "accuracy": 0.8234867705690467,
+  "roc_auc": 0.9015443902655622,
+  "threshold": 0.575,
+  "feature_columns": [
+    "Age",
+    "Number of Diseases",
+    "Recent Hospitalization",
+    "Number of Medications",
+    "Hour",
+    "Creation to Assignment Interval",
+    "Number of Previous Attendance",
+    "Number of Previous Non-Attendance",
+    "Sex",
+    "Insurance Type",
+    "Day",
+    "Month"
+  ],
+  "double_verification": {
+    "version": 1,
+    "non_attendance": {
+      "min_score_confirm": 4,
+      "rules": [
+        {
+          "id": "NA1",
+          "name": "Historial de inasistencias alto",
+          "condition": "Number of Previous Non-Attendance >= 2",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "NA2",
+          "name": "Alta tasa de no-show",
+          "condition": "Prev_NoShow_Rate > 0.5",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "NA3",
+          "name": "Baja experiencia con citas",
+          "condition": "Prev_Total <= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA4",
+          "name": "\u00daltima cita fue no-show",
+          "condition": "Last_Attendance == No-Show",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "NA5",
+          "name": "Intervalo largo de asignaci\u00f3n",
+          "condition": "Creation to Assignment Interval > 7",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA6",
+          "name": "Cita con poca anticipaci\u00f3n",
+          "condition": "Creation to Assignment Interval <= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA7",
+          "name": "Paciente joven + bajo compromiso",
+          "condition": "Age < 30 AND Number of Previous Attendance <= 1",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "NA8",
+          "name": "Baja carga cl\u00ednica + bajo compromiso",
+          "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+          "weight": 1,
+          "enabled": true
+        }
+      ]
+    },
+    "attendance": {
+      "min_score_confirm": 4,
+      "rules": [
+        {
+          "id": "A1",
+          "name": "Historial alto de asistencia",
+          "condition": "Number of Previous Attendance >= 3",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "A2",
+          "name": "Baja tasa de no-show",
+          "condition": "Prev_NoShow_Rate <= 0.2",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "A3",
+          "name": "\u00daltima cita fue asistida",
+          "condition": "Last_Attendance == Show",
+          "weight": 2,
+          "enabled": true
+        },
+        {
+          "id": "A4",
+          "name": "Alta experiencia con citas",
+          "condition": "Prev_Total >= 4",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A5",
+          "name": "Intervalo moderado",
+          "condition": "3 <= Creation to Assignment Interval <= 7",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A6",
+          "name": "Paciente con mayor carga cl\u00ednica",
+          "condition": "Number of Diseases >= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A7",
+          "name": "Mayor consumo de medicamentos",
+          "condition": "Number of Medications >= 2",
+          "weight": 1,
+          "enabled": true
+        },
+        {
+          "id": "A8",
+          "name": "(Ambiguo) Baja carga cl\u00ednica + bajo compromiso",
+          "condition": "Number of Diseases <= 1 AND Number of Previous Attendance <= 1",
+          "weight": 1,
+          "enabled": false,
+          "notes": "En la tabla compartida este criterio aparece tambi\u00e9n en inasistencia con la misma condici\u00f3n; se deja deshabilitado para evitar contradicciones hasta confirmar la regla correcta."
+        }
+      ]
+    }
   },
-  "test": {
-    "accuracy": 0.8142703477949086,
-    "balanced_accuracy": 0.8031783320783774,
-    "f1_macro": 0.798113191727222,
-    "f1_weighted": 0.8156628530073329,
-    "f1_no_show": 0.741,
-    "precision_no_show": 0.7166344294003868,
-    "recall_no_show": 0.7670807453416149,
-    "cohen_kappa": 0.5964871217927377,
-    "roc_auc": 0.8939579266083595,
-    "pr_auc": 0.8449999068954135
+  "target_distribution": {
+    "0": 0.6587275693311583,
+    "1": 0.3412724306688418
+  },
+  "classification_report": {
+    "0": {
+      "precision": 0.8694444444444445,
+      "recall": 0.8613098514034122,
+      "f1-score": 0.8653580315178324,
+      "support": 1817.0
+    },
+    "1": {
+      "precision": 0.7372262773722628,
+      "recall": 0.7505307855626328,
+      "f1-score": 0.7438190426091531,
+      "support": 942.0
+    },
+    "accuracy": 0.8234867705690467,
+    "macro avg": {
+      "precision": 0.8033353609083536,
+      "recall": 0.8059203184830225,
+      "f1-score": 0.8045885370634928,
+      "support": 2759.0
+    },
+    "weighted avg": {
+      "precision": 0.8243014530047942,
+      "recall": 0.8234867705690467,
+      "f1-score": 0.8238612110930496,
+      "support": 2759.0
+    }
+  },
+  "model_params": {
+    "catboost": {
+      "loss_function": "Logloss",
+      "eval_metric": "F1",
+      "random_seed": 42,
+      "depth": 6,
+      "learning_rate": 0.05,
+      "iterations": 600,
+      "l2_leaf_reg": 3.0,
+      "auto_class_weights": "Balanced",
+      "verbose": false,
+      "allow_writing_files": false
+    },
+    "smote": {
+      "enabled": false,
+      "random_state": 42,
+      "k_neighbors": 5
+    }
   }
 }
