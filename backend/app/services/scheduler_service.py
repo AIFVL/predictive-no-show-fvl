@@ -207,6 +207,19 @@ class ModelRetrainingScheduler:
                     msg = f"✓ REENTRENAMIENTO EXITOSO (proceso completado en {(datetime.now() - self.last_training_time).total_seconds():.1f}s)"
                     print(msg, flush=True)
                     logger.info(msg)
+                    
+                    # Recargar el modelo después del entrenamiento
+                    try:
+                        from .prediction import reload_model
+                        reload_info = reload_model()
+                        print(f"✓ Modelo recargado: {reload_info['model_version']}", flush=True)
+                        logger.info(f"✓ Modelo recargado: {reload_info['model_version']}")
+                        self.last_training_status = "✓ Exitoso (modelo recargado)"
+                    except Exception as e:
+                        print(f"⚠ Fallo al recargar modelo: {e}", flush=True)
+                        logger.warning(f"⚠ Fallo al recargar modelo: {e}")
+                        self.last_training_status = "✓ Exitoso (pero fallo la recarga)"
+                    
                     logger.info("=" * 70)
                     return True
                 else:

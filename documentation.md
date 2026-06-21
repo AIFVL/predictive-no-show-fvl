@@ -43,6 +43,13 @@ Este repositorio construye un modelo de machine learning para predecir inasisten
 - `documentation.md`: documentacion del flujo y ejecucion.
 - `README.md`: resumen del proyecto.
 - `requirements.txt`: dependencias.
+- `docker-compose.yml`: orquestación de contenedores (backend, frontend).
+- `backend/Dockerfile`: contenedor backend (Python 3.13 + FastAPI).
+- `backend/.dockerignore`: archivos a excluir del build del backend.
+- `frontend/Dockerfile`: contenedor frontend (Node 18 + Nginx).
+- `frontend/nginx.conf`: configuración de Nginx para el frontend.
+- `frontend/.dockerignore`: archivos a excluir del build del frontend.
+- `.dockerignore`: archivos a excluir de todos los builds.
 
 ## Ejecucion
 
@@ -145,4 +152,175 @@ El stacking combina LightGBM, XGBoost y CatBoost mediante un meta-modelo:
 - Split 70/15/15 (train/val/test) estratificado.
 - Threshold optimizado en validacion para maximizar `f1_no_show`.
 - Metricas reportadas: accuracy, balanced_accuracy, f1_macro, f1_weighted, f1_no_show, roc_auc, pr_auc, cohen_kappa.
+
+---
+
+## Dockerización del Proyecto
+
+El proyecto incluye soporte completo para Docker Compose con contenedores separados para backend, frontend y almacenamiento de datos.
+
+### Arquitectura Docker
+
+```
+┌─────────────────────────────────────────┐
+│      Docker Network (predictive)        │
+│  ┌───────────────┐  ┌──────────────┐   │
+│  │ Backend       │  │  Frontend    │   │
+│  │ :8000         │  │  :5173       │   │
+│  │ FastAPI       │  │  React+Nginx │   │
+│  │ + Scheduler   │  │              │   │
+│  │ + CatBoost    │  │              │   │
+│  └───────────────┘  └──────────────┘   │
+│        ▲                    ▲            │
+│        │                    │            │
+│  ┌─────┴────────────────────┴─────┐   │
+│  │  Volúmenes Compartidos         │   │
+│  │  - data/                        │   │
+│  │  - outputs/                     │   │
+│  │  - backend/appointments.db      │   │
+│  └────────────────────────────────┘   │
+└─────────────────────────────────────────┘
+```
+
+### Componentes
+
+**Backend (`backend/Dockerfile`)**
+- Base: Python 3.13-slim
+- Framework: FastAPI + Uvicorn
+- Features: Modelo ML, Scheduler, APIs REST
+- Puerto: 8000
+- Volúmenes: data/, outputs/, db
+
+**Frontend (`frontend/Dockerfile`)**
+- Build: Node 18 + Vite
+- Serving: Nginx alpine
+- Features: React app + reverse proxy a backend
+- Puerto: 5173 (HTTP)
+- Volúmenes: ninguno (build estático)
+
+**Network**
+- Driver: bridge
+- Nombre: `predictive-network`
+- Permite comunicación entre contenedores por hostname
+
+### Ejecución Rápida
+
+#### Build y start
+
+```bash
+docker-compose up --build
+```
+
+#### Ejecución sin rebuild
+
+```bash
+docker-compose up
+```
+
+#### Detener
+
+```bash
+docker-compose down
+```
+
+#### Detener y limpiar volúmenes
+
+```bash
+docker-compose down -v
+```
+
+### Logs y Debugging
+
+```bash
+# Todos los servicios
+docker-compose logs -f
+
+# Solo backend
+docker-compose logs -f backend
+
+# Solo frontend
+docker-compose logs -f frontend
+
+# Últimas 100 líneas
+docker-compose logs --tail=100
+```
+
+### Ejecutar comandos en contenedor
+
+```bash
+# Bash en backend
+docker-compose exec backend bash
+
+# Bash en frontend
+docker-compose exec frontend sh
+
+# Ejecutar comando específico
+docker-compose exec backend python src/train.py --config configs/training_catboost.yml
+```
+
+### Health Checks
+
+Both servicios incluyen health checks automáticos:
+
+```bash
+# Ver estado
+docker-compose ps
+
+# El output muestra: backend (healthy), frontend (healthy)
+```
+
+### Volúmenes Persistentes
+
+- `data/`: dataset raw y procesado
+- `outputs/`: modelos entrenados y métricas
+- `backend/appointments.db`: base de datos SQLite
+
+Estos volúmenes **sobreviven** a `docker-compose down` y se reutilizan en el próximo `up`.
+
+### Desarrollo Local
+
+Para desarrollo sin Docker:
+
+```bash
+# Terminal 1: Backend
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2: Frontend
+cd frontend && npm run dev
+```
+
+### Producción
+
+Para deployment en servidor:
+
+1. Clonar repositorio
+2. Instalar Docker + Docker Compose
+3. Configurar variables de entorno (si es necesario)
+4. `docker-compose -f docker-compose.yml up -d`
+5. Usar reverse proxy (Nginx/Traefik) para SSL
+
+### Troubleshooting
+
+**Contenedor no inicia**
+```bash
+docker-compose logs backend  # Ver error específico
+```
+
+**Puerto ya en uso**
+```bash
+# Cambiar en docker-compose.yml
+# ports:
+#   - "8001:8000"  # Host:Container
+```
+
+**Reconstruir sin cache**
+```bash
+docker-compose build --no-cache
+```
+
+**Limpiar todo**
+```bash
+docker-compose down -v
+docker system prune -a
+```
 

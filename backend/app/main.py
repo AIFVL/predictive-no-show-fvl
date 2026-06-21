@@ -48,6 +48,12 @@ def on_startup():
     else:
         print("Model retraining scheduler disabled. Install backend requirements to enable it.")
 
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Docker."""
+    return {"status": "healthy"}
+
 @app.on_event("shutdown")
 def on_shutdown():
     # Detener el scheduler

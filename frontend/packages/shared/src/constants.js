@@ -10,9 +10,9 @@ export const MONTH_LABELS = [
 export const DEFAULT_DATE_WINDOW = 8
 
 export const DATE_WINDOW_OPTIONS = [
-  { value: 8, label: 'Próximos 8 días' },
-  { value: 15, label: 'Próximos 15 días' },
-  { value: 30, label: 'Próximo mes' },
+  { value: 8, label: 'Predicción 8 días' },
+  { value: 15, label: 'Predicción 15 días' },
+  { value: 30, label: 'Predicción 30 días' },
 ]
 
 export const RISK_COPY = {
