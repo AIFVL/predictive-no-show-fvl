@@ -2,6 +2,35 @@
 
 Esta guia resume como instalar, entrenar, validar y ejecutar la aplicacion completa. El modelo principal actual es **CatBoost**; LightGBM, XGBoost y Stacking quedan como modelos alternativos o de comparacion.
 
+---
+
+## ⚠️ Nota Importante: Dataset Privado
+
+**La aplicación requiere un dataset para funcionar completamente.** El dataset original proviene de **Fundación Valle del Lili** y contiene información confidencial de pacientes. Por razones de privacidad y cumplimiento con regulaciones de protección de datos, **el dataset real no se incluye en esta entrega.**
+
+### Implicaciones
+
+**Sin un dataset en `data/raw/`, la aplicación no podrá:**
+- ✗ Entrenar o reentrenar modelos
+- ✗ Inicializar la base de datos
+- ✗ Ejecutar predicciones
+- ✗ Cargar datos de citas
+
+La aplicación mostrará errores al intentar:
+1. Ejecutar `docker-compose up` (fallarán los scripts de inicialización)
+2. Correr `python src/train.py` (no encontrará dataset)
+3. Acceder a endpoints de predicción (sin datos en BD)
+
+### Solución
+
+Para consultar sobre las funcionalidades restantes, **contacta al equipo de desarrollo**:
+
+josealejandromc4@gmail.com
+
+samuelalvarez2221@gmail.com
+
+samuel.ibarra1227@gmail.com
+
 ## Requisitos
 
 - Python 3.10 o superior.

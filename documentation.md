@@ -1,5 +1,34 @@
 # Documentacion del Proyecto
 
+## ⚠️ Requisito Importante: Dataset
+
+**La aplicación requiere un dataset para funcionar correctamente.** El dataset utilizado en este proyecto es información institucional de **Fundación Valle del Lili** y contiene datos sensibles de pacientes. Por motivos de **confidencialidad y protección de datos personales**, no se incluye en esta entrega.
+
+### Implicaciones
+
+**Sin un dataset en `data/raw/`, la aplicación no podrá:**
+- ✗ Entrenar o reentrenar modelos
+- ✗ Inicializar la base de datos
+- ✗ Ejecutar predicciones
+- ✗ Cargar datos de citas
+
+La aplicación mostrará errores al intentar:
+1. Ejecutar `docker-compose up` (fallarán los scripts de inicialización)
+2. Correr `python src/train.py` (no encontrará dataset)
+3. Acceder a endpoints de predicción (sin datos en BD)
+
+### Solución
+
+Para consultar sobre las funcionalidades restantes, **contacta al equipo de desarrollo**:
+
+josealejandromc4@gmail.com
+
+samuelalvarez2221@gmail.com
+
+samuel.ibarra1227@gmail.com
+
+---
+
 ## Objetivo
 Este repositorio construye un modelo de machine learning para predecir inasistencias (No-Show) en consultas de medicina interna. El objetivo es ayudar a la gestion de citas mediante un **modelo principal de CatBoost** que optimiza la predicción de no-asistencias, con soporte para modelos alternativos (LightGBM, XGBoost y Stacking).
 
