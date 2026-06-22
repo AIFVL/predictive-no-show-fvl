@@ -1,8 +1,8 @@
 {
-  "model_version": "lightgbm_smote",
-  "accuracy": 0.8209496194273287,
-  "roc_auc": 0.899388530357896,
-  "threshold": 0.547,
+  "model_version": "catboost",
+  "accuracy": 0.8234867705690467,
+  "roc_auc": 0.9015443902655622,
+  "threshold": 0.575,
   "feature_columns": [
     "Age",
     "Number of Diseases",
@@ -149,48 +149,46 @@
   },
   "classification_report": {
     "0": {
-      "precision": 0.8373278939316675,
-      "recall": 0.9036873968079252,
-      "f1-score": 0.8692429857067231,
+      "precision": 0.8694444444444445,
+      "recall": 0.8613098514034122,
+      "f1-score": 0.8653580315178324,
       "support": 1817.0
     },
     "1": {
-      "precision": 0.7807017543859649,
-      "recall": 0.6613588110403397,
-      "f1-score": 0.7160919540229885,
+      "precision": 0.7372262773722628,
+      "recall": 0.7505307855626328,
+      "f1-score": 0.7438190426091531,
       "support": 942.0
     },
-    "accuracy": 0.8209496194273287,
+    "accuracy": 0.8234867705690467,
     "macro avg": {
-      "precision": 0.8090148241588162,
-      "recall": 0.7825231039241325,
-      "f1-score": 0.7926674698648558,
+      "precision": 0.8033353609083536,
+      "recall": 0.8059203184830225,
+      "f1-score": 0.8045885370634928,
       "support": 2759.0
     },
     "weighted avg": {
-      "precision": 0.8179941413212827,
-      "recall": 0.8209496194273287,
-      "f1-score": 0.8169529270455856,
+      "precision": 0.8243014530047942,
+      "recall": 0.8234867705690467,
+      "f1-score": 0.8238612110930496,
       "support": 2759.0
     }
   },
   "model_params": {
-    "lightgbm": {
-      "objective": "binary",
-      "random_state": 42,
-      "n_jobs": -1,
-      "verbose": -1,
-      "subsample": 0.8,
-      "reg_lambda": 0.5,
-      "reg_alpha": 0.3,
-      "num_leaves": 63,
-      "n_estimators": 600,
-      "min_child_samples": 10,
-      "max_depth": 5,
-      "learning_rate": 0.08,
-      "colsample_bytree": 0.7
+    "catboost": {
+      "loss_function": "Logloss",
+      "eval_metric": "F1",
+      "random_seed": 42,
+      "depth": 6,
+      "learning_rate": 0.05,
+      "iterations": 600,
+      "l2_leaf_reg": 3.0,
+      "auto_class_weights": "Balanced",
+      "verbose": false,
+      "allow_writing_files": false
     },
     "smote": {
+      "enabled": false,
       "random_state": 42,
       "k_neighbors": 5
     }
